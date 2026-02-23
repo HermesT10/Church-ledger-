@@ -1,0 +1,49 @@
+---
+description: ChurchLedger page and component patterns for TSX files
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# Page & Component Patterns
+
+## Server Page Structure (list pages)
+```
+<div className="p-6 space-y-6">
+  {/* Header */}
+  <div className="flex items-center justify-between">
+    <div>
+      <h1 className="text-2xl font-bold">Title</h1>
+      <p className="text-sm text-muted-foreground mt-1">Subtitle</p>
+    </div>
+    {canEdit && <Button asChild><Link href="...">Action</Link></Button>}
+  </div>
+  {/* StatCards grid */}
+  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">...</div>
+  {/* Table or empty state */}
+</div>
+```
+
+## Empty State Pattern
+```
+<div className="rounded-md border p-8 text-center">
+  <Icon className="mx-auto h-10 w-10 text-muted-foreground/50" />
+  <p className="mt-3 text-sm text-muted-foreground">Guidance text</p>
+  <Button asChild variant="outline" size="sm" className="mt-4">
+    <Link href="...">CTA</Link>
+  </Button>
+</div>
+```
+
+## Client Component Pattern
+- Use `useTransition` + `sonner` toast for async actions.
+- `isPending` disables buttons with "Action…" text.
+- CSV exports: blob → URL.createObjectURL → click → revoke.
+
+## Imports to prefer
+- `StatCard` from `@/components/stat-card`
+- `Badge` from `@/components/ui/badge`
+- `Table/*` from `@/components/ui/table`
+- `Card/*` from `@/components/ui/card`
+- `Button` from `@/components/ui/button`
+- Icons from `lucide-react`
+- Toast from `sonner`

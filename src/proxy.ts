@@ -1,7 +1,25 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-export async function middleware(request: NextRequest) {
+/* ------------------------------------------------------------------ */
+/*  Demo mode detection (env + query params)                           */
+/* ------------------------------------------------------------------ */
+
+function isDemoRequest(request: NextRequest): boolean {
+  if (process.env.DEMO_MODE !== 'true') return false;
+  const demo = request.nextUrl.searchParams.get('demo');
+  const key = request.nextUrl.searchParams.get('key');
+  if (demo !== '1' || !key) return false;
+  return key === process.env.DEMO_MODE_KEY;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Proxy (formerly Middleware — renamed for Next.js 16)                */
+/* ------------------------------------------------------------------ */
+
+export async function proxy(request: NextRequest) {
+  const demoMode = isDemoRequest(request);
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -38,8 +56,17 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protect /app/* routes — redirect to login if no session
-  if (request.nextUrl.pathname.startsWith('/app') && !user) {
+  // Public routes that don't require authentication
+  const publicRoutes = ['/', '/login', '/signup', '/auth/callback', '/api/health'];
+  const isPublic = publicRoutes.some(
+    (route) =>
+      request.nextUrl.pathname === route ||
+      request.nextUrl.pathname.startsWith('/auth/')
+  );
+
+  // Protect all non-public routes — redirect to login if no session.
+  // Demo mode bypasses the auth redirect.
+  if (!isPublic && !user && !demoMode) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
     loginUrl.searchParams.set('redirectTo', request.nextUrl.pathname);
@@ -48,6 +75,11 @@ export async function middleware(request: NextRequest) {
 
   // Forward the pathname so server components can read it via headers()
   response.headers.set('x-pathname', request.nextUrl.pathname);
+
+  // Signal demo mode to downstream server components and actions
+  if (demoMode) {
+    response.headers.set('x-demo-mode', 'true');
+  }
 
   return response;
 }

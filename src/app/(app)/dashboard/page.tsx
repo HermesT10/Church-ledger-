@@ -1,10 +1,37 @@
-export default function DashboardPage() {
+import { getActiveOrg } from '@/lib/org';
+import { getDashboardOverview } from '@/lib/reports/dashboard';
+import { getDashboardLayout } from '@/lib/dashboard/actions';
+import { DashboardClient } from './dashboard-client';
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string }>;
+}) {
+  const { orgId, role } = await getActiveOrg();
+  const { period: periodParam } = await searchParams;
+  const period = ['this_month', 'last_month', 'ytd'].includes(periodParam ?? '')
+    ? periodParam!
+    : 'this_month';
+
+  const layout = await getDashboardLayout();
+
+  const visibleWidgets = layout
+    .filter((w) => w.visible)
+    .map((w) => w.id);
+
+  const { data } = await getDashboardOverview({ orgId, period, visibleWidgets });
+
+  const canEdit = role === 'admin' || role === 'treasurer';
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-      <p className="mt-2 text-muted-foreground">
-        Welcome to ChurchLedger. This is your dashboard.
-      </p>
+    <div className="max-w-7xl mx-auto px-6 py-6">
+      <DashboardClient
+        data={data}
+        period={period}
+        canEdit={canEdit}
+        initialLayout={layout}
+      />
     </div>
   );
 }

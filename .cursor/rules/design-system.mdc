@@ -1,0 +1,56 @@
+---
+description: ChurchLedger design system – premium finance SaaS visual standards
+alwaysApply: true
+---
+
+# ChurchLedger Design System
+
+## Layout
+- 12-column grid, max-w-7xl, px-6 py-6. gap-6 between sections.
+- Tablet: 8 columns. Mobile: single-column stack.
+- Every page: header (title + subtitle) → cards → actions top-right.
+
+## Cards
+- `rounded-2xl shadow-sm border p-6`. Group related content only.
+- Header: title left, optional action right.
+
+## Typography
+- Page title: `text-2xl font-bold`. Subtitle: `text-sm text-muted-foreground`.
+- KPI numbers: `text-4xl font-bold tracking-tight`. Labels: muted opacity.
+
+## KPI Cards
+- Use `StatCard` from `@/components/stat-card` with gradient + icon.
+- Metric large, subtitle below, scannable at a glance.
+
+## Tables
+- shadcn `Table` with `rounded-md border overflow-x-auto` wrapper.
+- Light row dividers, subtle hover. Actions right-aligned. Status as `Badge`.
+
+## Charts
+- Title + micro-summary subtitle ("£X of £Y budget used (Z%)").
+- Empty state: icon + guidance text + CTA button. No heavy gridlines.
+
+## Buttons
+- Primary: visually prominent. Secondary: `variant="outline"`.
+- Key actions: icon + text (e.g. `<FileText size={14} className="mr-1" />`).
+
+## Empty States
+- Never leave blank space unexplained.
+- Show: reason why empty → suggested next action → CTA button.
+- Tone: calm, encouraging, non-alarming.
+
+## Status Badges
+- Soft-colour `Badge`: Draft (outline), Approved (secondary), Posted/Submitted (default), Paid (default).
+
+## Visual Tone
+- Calm, professional, premium. Soft shadows, subtle borders, generous spacing.
+- Avoid loud colours except KPI gradients and alerts.
+
+## Accessibility
+- Icons: `aria-hidden="true"` when decorative, `aria-label` when actionable.
+- Buttons: visible hover/focus states. Colour contrast must meet WCAG AA.
+- Forms: labels, helper text, clear validation feedback.
+
+## Engineering
+- Do not change existing data logic unless explicitly instructed.
+- Reuse existing components. Keep components small and composable.
