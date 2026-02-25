@@ -16,7 +16,7 @@ export async function listBankAccounts(orgId: string) {
     .from('bank_accounts')
     .select('*')
     .eq('organisation_id', orgId)
-    .eq('status', 'active')
+    .eq('is_active', true)
     .order('name');
 
   return { data: data ?? [], error: error?.message ?? null };

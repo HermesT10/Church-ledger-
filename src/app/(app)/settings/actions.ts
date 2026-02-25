@@ -395,7 +395,7 @@ export async function archiveBankAccount(
 
   const { data: account, error: fetchErr } = await supabase
     .from('bank_accounts')
-    .select('id, organisation_id, name, status')
+    .select('id, organisation_id, name, is_active')
     .eq('id', bankAccountId)
     .single();
 
@@ -407,18 +407,13 @@ export async function archiveBankAccount(
     return { error: 'Bank account does not belong to your organisation' };
   }
 
-  if ((account.status as string) === 'archived') {
+  if (!account.is_active) {
     return { error: 'Bank account is already archived' };
   }
 
   const { error: updateErr } = await supabase
     .from('bank_accounts')
-    .update({
-      status: 'archived',
-      archived_at: new Date().toISOString(),
-      archived_by: user.id,
-      is_active: false,
-    })
+    .update({ is_active: false })
     .eq('id', bankAccountId);
 
   if (updateErr) return { error: updateErr.message };
@@ -526,12 +521,12 @@ export async function listBankAccounts(
 
   let query = supabase
     .from('bank_accounts')
-    .select('id, name, account_number_last4, status')
+    .select('id, name, account_number_last4, is_active')
     .eq('organisation_id', orgId)
     .order('name');
 
   if (!includeArchived) {
-    query = query.eq('status', 'active');
+    query = query.eq('is_active', true);
   }
 
   const { data, error } = await query;
@@ -543,7 +538,7 @@ export async function listBankAccounts(
       id: r.id,
       name: r.name,
       account_number_last4: r.account_number_last4 ?? null,
-      status: (r.status as string) ?? 'active',
+      status: r.is_active ? 'active' : 'archived',
     })),
     error: null,
   };
