@@ -358,7 +358,7 @@ export function SettingsClient({
   const confirmArchiveBank = () => {
     if (!archiveBankDialog.bankId) return;
     startTransition(async () => {
-      const { data, error } = await archiveBankAccount(archiveBankDialog.bankId!);
+      const { error } = await archiveBankAccount(archiveBankDialog.bankId!);
       if (error) toast.error(error);
       else {
         toast.success('Bank account archived.');

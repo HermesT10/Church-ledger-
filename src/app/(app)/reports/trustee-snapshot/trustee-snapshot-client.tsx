@@ -144,10 +144,27 @@ export function TrusteeSnapshotClient({ initialData: data, role, error }: Props)
     );
   }
 
+  if (error && !data) {
+    return (
+      <ReportShell
+        title="Trustee Snapshot"
+        description="Executive summary of cash, funds, income & expenditure, variances, and forecast risk."
+        activeReport="/reports/trustee-snapshot"
+        error={error}
+      >
+        <p className="text-sm text-destructive">
+          Failed to load report. Please try again.
+        </p>
+      </ReportShell>
+    );
+  }
+
+  if (!data) return null;
+
   return (
     <ReportShell
       title="Trustee Snapshot"
-      asOfDate={data?.asOfDate}
+      asOfDate={data.asOfDate}
       description="Executive summary of cash, funds, income & expenditure, variances, and forecast risk."
       activeReport="/reports/trustee-snapshot"
       action={
