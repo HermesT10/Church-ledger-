@@ -55,7 +55,7 @@ export default async function BankAccountDetailPage({
     .select('*')
     .eq('id', bankAccountId)
     .eq('organisation_id', orgId)
-    .eq('status', 'active')
+    .eq('is_active', true)
     .single();
 
   if (!bankAccount) notFound();
