@@ -6,6 +6,7 @@ import { useState, Suspense } from 'react';
 import { createAccount } from '@/lib/accounts/actions';
 import type { AccountRow, AccountType } from '@/lib/accounts/types';
 import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '@/lib/accounts/types';
+import { ACCOUNT_CATEGORIES } from '@/lib/accounts/categories';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -25,6 +26,12 @@ function InnerForm({ existingAccounts }: Props) {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
   const [selectedType, setSelectedType] = useState<AccountType>('income');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [otherCategoryValue, setOtherCategoryValue] = useState('');
+
+  const categories = ACCOUNT_CATEGORIES[selectedType];
+  const selectedCat = categories.find((c) => c.value === selectedCategory);
+  const isOther = selectedCategory === 'Other';
 
   // Filter parent accounts to same type
   const parentCandidates = existingAccounts.filter(
@@ -100,14 +107,45 @@ function InnerForm({ existingAccounts }: Props) {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="reporting_category">Reporting Category</Label>
-              <Input
-                id="reporting_category"
+              <input
+                type="hidden"
                 name="reporting_category"
-                placeholder="e.g. Staff Costs, Premises Costs"
+                value={isOther ? (otherCategoryValue.trim() || 'Other') : selectedCategory}
               />
-              <p className="text-xs text-muted-foreground">
-                Optional grouping for reports (e.g. SOFA, I&amp;E).
-              </p>
+              <select
+                id="reporting_category"
+                value={selectedCategory}
+                onChange={(e) => {
+                  setSelectedCategory(e.target.value);
+                  if (e.target.value !== 'Other') setOtherCategoryValue('');
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">— None —</option>
+                {categories.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              {isOther && (
+                <Input
+                  placeholder="Specify category (e.g. Missions Fund)"
+                  value={otherCategoryValue}
+                  onChange={(e) => setOtherCategoryValue(e.target.value)}
+                  className="mt-1"
+                />
+              )}
+              {selectedCat?.description && (
+                <p className="text-xs text-muted-foreground">
+                  {selectedCat.description}
+                </p>
+              )}
+              {!selectedCat?.description && (
+                <p className="text-xs text-muted-foreground">
+                  Optional grouping for reports (e.g. SOFA, I&amp;E).
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2">

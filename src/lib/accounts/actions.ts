@@ -47,16 +47,31 @@ export async function getAccountsWithStats(options?: {
     return { data: [], error: null };
   }
 
-  // Fetch journal_lines for these accounts to compute count + balance
   const accountIds = accounts.map((a) => a.id);
 
-  const { data: journalLines } = await supabase
-    .from('journal_lines')
-    .select('account_id, debit_pence, credit_pence')
+  // Fetch posted journals (balance uses posted only, matching Balance Sheet / P&L)
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: postedJournals } = await supabase
+    .from('journals')
+    .select('id')
     .eq('organisation_id', orgId)
-    .in('account_id', accountIds);
+    .eq('status', 'posted')
+    .lte('journal_date', today);
 
-  // Aggregate: transaction count + net balance per account
+  const journalIds = (postedJournals ?? []).map((j) => j.id);
+
+  // Fetch journal_lines for posted journals only
+  const { data: journalLines } =
+    journalIds.length > 0
+      ? await supabase
+          .from('journal_lines')
+          .select('account_id, debit_pence, credit_pence')
+          .eq('organisation_id', orgId)
+          .in('journal_id', journalIds)
+          .in('account_id', accountIds)
+      : { data: [] };
+
+  // Aggregate: transaction count + net balance per account (posted only)
   const txnCountMap = new Map<string, number>();
   const balanceMap = new Map<string, number>();
 

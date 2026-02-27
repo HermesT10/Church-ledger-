@@ -8,11 +8,14 @@ import {
   Scale,
   Landmark,
   Plus,
+  FileText,
+  BarChart3,
 } from 'lucide-react';
 import { getActiveOrg } from '@/lib/org';
 import { getAccountsWithStats } from '@/lib/accounts/actions';
 import type { AccountType, AccountWithStats } from '@/lib/accounts/types';
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPES } from '@/lib/accounts/types';
+import { ACCOUNT_CATEGORIES, ACCOUNT_TYPE_ORDER } from '@/lib/accounts/categories';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/stat-card';
@@ -110,7 +113,7 @@ function groupByType(accounts: AccountWithStats[]): Record<AccountType, AccountW
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; active?: string }>;
+  searchParams: Promise<{ type?: string; active?: string; showEmpty?: string }>;
 }) {
   const { role } = await getActiveOrg();
   const params = await searchParams;
@@ -120,6 +123,7 @@ export default async function AccountsPage({
     ? (params.type as AccountType)
     : undefined;
   const activeOnly = params.active === 'true';
+  const showEmptyCategories = params.showEmpty === 'true';
 
   const { data: accounts, error } = await getAccountsWithStats({
     type: filterType,
@@ -127,14 +131,23 @@ export default async function AccountsPage({
   });
 
   const grouped = groupByType(accounts);
-  const displayTypes = filterType ? [filterType] : ACCOUNT_TYPES;
+  const displayTypes = filterType ? [filterType] : ACCOUNT_TYPE_ORDER;
+
+  function buildFilterUrl(overrides: { type?: string; active?: string; showEmpty?: string }) {
+    const p = new URLSearchParams();
+    if (overrides.type) p.set('type', overrides.type);
+    if (overrides.active === 'true') p.set('active', 'true');
+    if (overrides.showEmpty === 'true') p.set('showEmpty', 'true');
+    const q = p.toString();
+    return q ? `/accounts?${q}` : '/accounts';
+  }
 
   return (
     <PageShell>
       {/* Header */}
       <PageHeader
         title="Chart of Accounts"
-        subtitle="Manage income, expense, asset, liability, and equity accounts for your organisation."
+        subtitle="Master list of all financial accounts, feeding into the Balance Sheet and Profit & Loss reports."
         actions={
           canEdit ? (
             <Button asChild>
@@ -147,9 +160,25 @@ export default async function AccountsPage({
         }
       />
 
+      {/* Report links */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Button asChild variant="outline" size="sm">
+          <Link href="/reports/balance-sheet">
+            <FileText size={14} className="mr-1.5" />
+            View Balance Sheet
+          </Link>
+        </Button>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/reports/income-statement">
+            <BarChart3 size={14} className="mr-1.5" />
+            View Profit & Loss
+          </Link>
+        </Button>
+      </div>
+
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {ACCOUNT_TYPES.map((t) => {
+        {ACCOUNT_TYPE_ORDER.map((t) => {
           const count = grouped[t]?.length ?? 0;
           return (
             <StatCard
@@ -173,9 +202,11 @@ export default async function AccountsPage({
           variant={!filterType ? 'default' : 'outline'}
           size="sm"
         >
-          <Link href={activeOnly ? '/accounts?active=true' : '/accounts'}>All Types</Link>
+          <Link href={buildFilterUrl({ active: activeOnly ? 'true' : undefined, showEmpty: showEmptyCategories ? 'true' : undefined })}>
+            All Types
+          </Link>
         </Button>
-        {ACCOUNT_TYPES.map((t) => (
+        {ACCOUNT_TYPE_ORDER.map((t) => (
           <Button
             key={t}
             asChild
@@ -183,27 +214,42 @@ export default async function AccountsPage({
             size="sm"
           >
             <Link
-              href={`/accounts?type=${t}${activeOnly ? '&active=true' : ''}`}
+              href={buildFilterUrl({ type: t, active: activeOnly ? 'true' : undefined, showEmpty: showEmptyCategories ? 'true' : undefined })}
             >
               {ACCOUNT_TYPE_LABELS[t]}
             </Link>
           </Button>
         ))}
 
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
           <Button
             asChild
             variant={activeOnly ? 'default' : 'outline'}
             size="sm"
           >
             <Link
-              href={
-                activeOnly
-                  ? `/accounts${filterType ? `?type=${filterType}` : ''}`
-                  : `/accounts?${filterType ? `type=${filterType}&` : ''}active=true`
-              }
+              href={buildFilterUrl({
+                type: filterType,
+                active: activeOnly ? undefined : 'true',
+                showEmpty: showEmptyCategories ? 'true' : undefined,
+              })}
             >
               {activeOnly ? 'Showing Active Only' : 'Show Active Only'}
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant={showEmptyCategories ? 'default' : 'outline'}
+            size="sm"
+          >
+            <Link
+              href={buildFilterUrl({
+                type: filterType,
+                active: activeOnly ? 'true' : undefined,
+                showEmpty: showEmptyCategories ? undefined : 'true',
+              })}
+            >
+              {showEmptyCategories ? 'Hiding Empty Categories' : 'Show Empty Categories'}
             </Link>
           </Button>
         </div>
@@ -218,14 +264,25 @@ export default async function AccountsPage({
         <div className="space-y-6">
           {displayTypes.map((type) => {
             const typeAccounts = grouped[type] ?? [];
-            if (typeAccounts.length === 0) return null;
+            const standardCategories = ACCOUNT_CATEGORIES[type];
+            const standardValues = standardCategories.map((c) => c.value);
 
-            const categories = new Map<string, AccountWithStats[]>();
-            for (const a of typeAccounts) {
-              const cat = a.reporting_category ?? 'Uncategorised';
-              if (!categories.has(cat)) categories.set(cat, []);
-              categories.get(cat)!.push(a);
+            const categoriesMap = new Map<string, AccountWithStats[]>();
+            for (const cat of standardValues) {
+              categoriesMap.set(cat, []);
             }
+            for (const a of typeAccounts) {
+              const cat = a.reporting_category ?? null;
+              const target = cat && standardValues.includes(cat) ? cat : 'Other';
+              if (!categoriesMap.has(target)) categoriesMap.set(target, []);
+              categoriesMap.get(target)!.push(a);
+            }
+
+            const categoriesToShow = showEmptyCategories
+              ? standardValues
+              : standardValues.filter((cat) => (categoriesMap.get(cat)?.length ?? 0) > 0);
+
+            if (categoriesToShow.length === 0 && typeAccounts.length === 0) return null;
 
             return (
               <Card key={type} className={`border rounded-2xl shadow-sm ${TYPE_CARD_STYLES[type]}`}>
@@ -250,23 +307,24 @@ export default async function AccountsPage({
                           <TableHead>Category</TableHead>
                           <TableHead className="text-center w-[80px]">Status</TableHead>
                           <TableHead className="text-right w-[100px]">Transactions</TableHead>
-                          <TableHead className="text-right w-[120px]">Balance</TableHead>
+                          <TableHead className="text-right w-[120px]">Current Balance</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {Array.from(categories.entries()).map(([category, catAccounts]) => (
+                        {categoriesToShow.map((category) => {
+                          const catAccounts = categoriesMap.get(category) ?? [];
+                          return (
                           <Fragment key={`${type}-${category}`}>
-                            {categories.size > 1 && (
-                              <TableRow className="bg-muted/30 hover:bg-muted/30">
-                                <TableCell
-                                  colSpan={6}
-                                  className="py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
-                                >
-                                  {category}
-                                </TableCell>
-                              </TableRow>
-                            )}
-                            {catAccounts.map((account) => (
+                            <TableRow className="bg-muted/30 hover:bg-muted/30">
+                              <TableCell
+                                colSpan={6}
+                                className="py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+                              >
+                                {category}
+                              </TableCell>
+                            </TableRow>
+                            {catAccounts.length > 0 ? (
+                              catAccounts.map((account) => (
                               <TableRow
                                 key={account.id}
                                 className={!account.is_active ? 'opacity-50' : ''}
@@ -320,9 +378,17 @@ export default async function AccountsPage({
                                   </span>
                                 </TableCell>
                               </TableRow>
-                            ))}
+                            ))
+                            ) : (
+                              <TableRow>
+                                <TableCell colSpan={6} className="py-4 text-center text-sm text-muted-foreground">
+                                  No accounts in this category
+                                </TableCell>
+                              </TableRow>
+                            )}
                           </Fragment>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>

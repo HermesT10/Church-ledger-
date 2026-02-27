@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { useState, Suspense, useMemo } from 'react';
 import {
   updateAccount,
   archiveAccount,
   unarchiveAccount,
   deleteAccount,
 } from '@/lib/accounts/actions';
-import type { AccountRow } from '@/lib/accounts/types';
+import type { AccountRow, AccountType } from '@/lib/accounts/types';
 import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '@/lib/accounts/types';
+import { ACCOUNT_CATEGORIES } from '@/lib/accounts/categories';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -33,6 +34,27 @@ interface Props {
 function EditForm({ account, canEdit, parentCandidates, hasTransactions }: Props) {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
+
+  const { initialCategory, initialOther } = useMemo(() => {
+    const existing = account.reporting_category?.trim() || '';
+    const type = account.type as AccountType;
+    const standardValues = ACCOUNT_CATEGORIES[type].map((c) => c.value);
+    if (existing && standardValues.includes(existing)) {
+      return { initialCategory: existing, initialOther: '' };
+    }
+    if (existing) {
+      return { initialCategory: 'Other', initialOther: existing };
+    }
+    return { initialCategory: '', initialOther: '' };
+  }, [account.reporting_category, account.type]);
+
+  const [selectedType, setSelectedType] = useState<AccountType>(account.type as AccountType);
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const [otherCategoryValue, setOtherCategoryValue] = useState(initialOther);
+
+  const categories = ACCOUNT_CATEGORIES[selectedType];
+  const selectedCat = categories.find((c) => c.value === selectedCategory);
+  const isOther = selectedCategory === 'Other';
 
   return (
     <Card>
@@ -102,7 +124,16 @@ function EditForm({ account, canEdit, parentCandidates, hasTransactions }: Props
               id="type"
               name="type"
               required
-              defaultValue={account.type}
+              value={selectedType}
+              onChange={(e) => {
+                const t = e.target.value as AccountType;
+                setSelectedType(t);
+                const vals = ACCOUNT_CATEGORIES[t].map((c) => c.value);
+                if (!vals.includes(selectedCategory)) {
+                  setSelectedCategory('');
+                  setOtherCategoryValue('');
+                }
+              }}
               disabled={!canEdit}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -116,16 +147,50 @@ function EditForm({ account, canEdit, parentCandidates, hasTransactions }: Props
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="reporting_category">Reporting Category</Label>
-            <Input
-              id="reporting_category"
+            <input
+              type="hidden"
               name="reporting_category"
-              defaultValue={account.reporting_category ?? ''}
-              disabled={!canEdit}
-              placeholder="e.g. Staff Costs, Premises Costs"
+              value={isOther ? (otherCategoryValue.trim() || 'Other') : selectedCategory}
             />
-            <p className="text-xs text-muted-foreground">
-              Optional grouping for reports (e.g. SOFA, I&amp;E).
-            </p>
+            <select
+              id="reporting_category"
+              value={selectedCategory}
+              onChange={(e) => {
+                setSelectedCategory(e.target.value);
+                if (e.target.value !== 'Other') setOtherCategoryValue('');
+              }}
+              disabled={!canEdit}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">— None —</option>
+              {categories.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {isOther && canEdit && (
+              <Input
+                placeholder="Specify category (e.g. Missions Fund)"
+                value={otherCategoryValue}
+                onChange={(e) => setOtherCategoryValue(e.target.value)}
+                disabled={!canEdit}
+                className="mt-1"
+              />
+            )}
+            {isOther && !canEdit && otherCategoryValue && (
+              <p className="text-xs text-muted-foreground mt-1">{otherCategoryValue}</p>
+            )}
+            {selectedCat?.description && (
+              <p className="text-xs text-muted-foreground">
+                {selectedCat.description}
+              </p>
+            )}
+            {!selectedCat?.description && (
+              <p className="text-xs text-muted-foreground">
+                Optional grouping for reports (e.g. SOFA, I&amp;E).
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
