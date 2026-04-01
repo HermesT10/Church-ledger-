@@ -133,9 +133,10 @@ export function FundDetailClient({
   const displayExpense = showAllExpense ? expenseAccounts : expenseAccounts.slice(0, 10);
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="rounded-[1.75rem] border border-border/70 bg-card/88 p-5 shadow-sm backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-4">
         <div>
           <Link href="/funds" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
             <ArrowLeft size={14} /> Back to Funds
@@ -165,10 +166,11 @@ export function FundDetailClient({
             <Link href={`/funds/${fund.id}/edit`}><Edit size={14} className="mr-1" /> Edit Fund</Link>
           </Button>
         )}
+        </div>
       </div>
 
       {/* Period Selector */}
-      <div className="flex items-center gap-2 flex-wrap border rounded-lg p-3 bg-muted/20">
+      <div className="app-filter-bar p-3">
         <Calendar size={16} className="text-muted-foreground" />
         <span className="text-sm font-medium text-muted-foreground mr-1">Period:</span>
         {PERIODS.map((p) => (
@@ -195,7 +197,7 @@ export function FundDetailClient({
 
       {/* Summary Cards */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-1">

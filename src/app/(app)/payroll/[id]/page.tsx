@@ -2,6 +2,8 @@ import { notFound, redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { getPayrollRun } from '@/lib/payroll/actions';
 import { getSettings } from '@/app/(app)/settings/actions';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { PayrollDetailClient } from './payroll-detail-client';
 
 export default async function PayrollDetailPage({
@@ -24,10 +26,16 @@ export default async function PayrollDetailPage({
   const canEdit = role === 'admin' || role === 'treasurer';
 
   return (
-    <PayrollDetailClient
-      run={run}
-      settings={settings}
-      canEdit={canEdit}
-    />
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title="Payroll Run"
+        subtitle="Review payroll totals, draft journal lines, and posting actions for this period."
+      />
+      <PayrollDetailClient
+        run={run}
+        settings={settings}
+        canEdit={canEdit}
+      />
+    </PageShell>
   );
 }

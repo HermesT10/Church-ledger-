@@ -59,7 +59,7 @@ export default async function DonationsPage() {
       {/* Dashboard Stats */}
       {dashboard && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               title="This Month"
               value={formatPounds(dashboard.totalThisMonthPence)}
@@ -112,7 +112,7 @@ export default async function DonationsPage() {
       )}
 
       {/* Recent Donations */}
-      <Card className="border rounded-2xl shadow-sm bg-emerald-100/40 border-emerald-200/50">
+      <Card className="border bg-card/92 shadow-sm">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -169,7 +169,7 @@ export default async function DonationsPage() {
               </Table>
             </div>
           ) : (
-            <div className="text-center py-8">
+            <div className="py-8 text-center">
               <Coins className="mx-auto h-10 w-10 text-muted-foreground/50" />
               <p className="mt-3 text-sm text-muted-foreground">
                 No donations yet.{' '}

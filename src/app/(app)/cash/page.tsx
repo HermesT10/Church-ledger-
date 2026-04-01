@@ -25,13 +25,13 @@ export default async function CashOverviewPage() {
   const { data: dashboard } = await getCashDashboard(orgId);
 
   if (!dashboard) {
-    return <p className="text-sm text-muted-foreground">Failed to load dashboard.</p>;
+    return <p className="rounded-[1.25rem] border border-border/80 bg-white/98 px-4 py-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">Failed to load dashboard.</p>;
   }
 
   return (
     <div className="space-y-6">
       {/* Dashboard cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Cash-in-Hand"
           value={formatPounds(dashboard.cashInHandPence)}

@@ -245,7 +245,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
   // Warning if payroll accounts not configured
   if (!accountsConfigured) {
     return (
-      <Card className="rounded-2xl shadow-sm">
+      <Card className="app-surface">
         <CardContent className="p-6 text-center space-y-4">
           <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
           <p className="text-sm text-muted-foreground">
@@ -262,7 +262,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
   return (
     <div className="space-y-6">
       {/* Step indicators */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="app-step-bar text-sm">
         {[
           { num: 1, label: 'Month', icon: CalendarDays },
           { num: 2, label: 'Totals', icon: Calculator },
@@ -272,17 +272,17 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
           <div key={s.num} className="flex items-center gap-2">
             {i > 0 && (
               <div
-                className={`w-6 h-px ${step >= s.num ? 'bg-primary' : 'bg-muted'}`}
+                className={`h-px w-6 ${step >= s.num ? 'bg-primary/70' : 'bg-slate-200'}`}
               />
             )}
             <button
               onClick={() => s.num < step && setStep(s.num)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              className={`app-step-pill ${
                 step === s.num
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'app-step-pill-active'
                   : step > s.num
-                    ? 'bg-muted text-foreground cursor-pointer hover:bg-muted/80'
-                    : 'bg-muted/50 text-muted-foreground'
+                    ? 'app-step-pill-complete cursor-pointer'
+                    : 'app-step-pill-upcoming'
               }`}
               disabled={s.num > step}
             >
@@ -295,7 +295,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
 
       {/* Step 1: Select Month */}
       {step === 1 && (
-        <Card className="rounded-2xl shadow-sm">
+        <Card className="app-surface">
           <CardHeader className="p-6 pb-0">
             <CardTitle className="text-base">Select Payroll Month</CardTitle>
             <CardDescription>
@@ -347,7 +347,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
 
       {/* Step 2: Enter Totals */}
       {step === 2 && (
-        <Card className="rounded-2xl shadow-sm">
+        <Card className="app-surface">
           <CardHeader className="p-6 pb-0">
             <CardTitle className="text-base">Enter Payroll Totals</CardTitle>
             <CardDescription>
@@ -431,7 +431,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
             </div>
 
             {/* Summary */}
-            <div className="rounded-lg bg-muted/50 p-4 space-y-1 text-sm">
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Gross (Net + PAYE)</span>
                 <span className="font-medium">{formatPounds(effectiveGross)}</span>
@@ -457,7 +457,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
 
       {/* Step 3: Fund Splits */}
       {step === 3 && (
-        <Card className="rounded-2xl shadow-sm">
+        <Card className="app-surface">
           <CardHeader className="p-6 pb-0">
             <CardTitle className="text-base">Fund Splits (Optional)</CardTitle>
             <CardDescription>
@@ -493,7 +493,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
                       {funds.map((fund) => (
                         <div
                           key={fund.id}
-                          className="flex items-center gap-3"
+                          className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2"
                         >
                           <span className="text-sm min-w-[140px]">
                             {fund.name}
@@ -517,7 +517,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
                       ))}
                     </div>
 
-                    <div className="rounded-lg bg-muted/50 p-3 text-sm flex justify-between">
+                    <div className="flex justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 text-sm">
                       <span>
                         Allocated: {formatPounds(splitsTotal)} / Remaining:{' '}
                         <span
@@ -549,7 +549,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
       {/* Step 4: Review */}
       {step === 4 && (
         <>
-          <Card className="rounded-2xl shadow-sm">
+          <Card className="app-surface">
             <CardHeader className="p-6 pb-0">
               <CardTitle className="text-base">Review &amp; Create</CardTitle>
               <CardDescription>
@@ -591,7 +591,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
               {enableSplits && splits.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Fund Splits</p>
-                  <div className="rounded-md border overflow-x-auto">
+                  <div className="app-table-shell">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -607,7 +607,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
                                 ? fundNames.get(s.fundId) ?? s.fundId
                                 : 'Untagged'}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-right app-table-amount-positive">
                               {formatPounds(s.amountPence)}
                             </TableCell>
                           </TableRow>
@@ -621,7 +621,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
               {/* Journal preview */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Journal Preview</p>
-                <div className="rounded-md border overflow-x-auto">
+                <div className="app-table-shell">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -642,12 +642,12 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
                               ? fundNames.get(line.fundId) ?? line.fundId
                               : '—'}
                           </TableCell>
-                          <TableCell className="text-right text-sm">
+                          <TableCell className="text-right text-sm app-table-amount-positive">
                             {line.debitPence > 0
                               ? formatPounds(line.debitPence)
                               : '—'}
                           </TableCell>
-                          <TableCell className="text-right text-sm">
+                          <TableCell className="text-right text-sm app-table-amount-negative">
                             {line.creditPence > 0
                               ? formatPounds(line.creditPence)
                               : '—'}
@@ -655,7 +655,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
                         </TableRow>
                       ))}
                       {/* Totals row */}
-                      <TableRow className="font-semibold border-t-2">
+                      <TableRow className="border-t-2 font-semibold">
                         <TableCell colSpan={2}>Total</TableCell>
                         <TableCell className="text-right">
                           {formatPounds(totalDebits)}
@@ -681,7 +681,7 @@ export function NewPayrollClient({ funds, employees = [], accountsConfigured }: 
 
               {/* Validation errors */}
               {!validation.valid && (
-                <div className="rounded-md bg-destructive/10 p-3 space-y-1">
+                <div className="space-y-1 rounded-xl border border-rose-200/70 bg-rose-50/70 p-3">
                   {validation.errors.map((err, i) => (
                     <p key={i} className="text-sm text-destructive">
                       {err}

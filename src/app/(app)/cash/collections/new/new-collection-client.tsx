@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const SELECT_CLASS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 interface LineState {
   key: number;
@@ -104,14 +104,14 @@ export function NewCollectionClient({ orgId, funds, incomeAccounts, donors }: Pr
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <Card>
+    <div className="max-w-4xl space-y-6">
+      <Card className="app-surface">
         <CardHeader>
-          <CardTitle>New Cash Collection</CardTitle>
-          <CardDescription>Record a cash collection with two-person verification.</CardDescription>
+          <CardTitle>Collection Overview</CardTitle>
+          <CardDescription>Record the service, counters, confirmations, and notes before coding the lines.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Collection Date *</Label>
               <Input type="date" value={collectedDate} onChange={(e) => setCollectedDate(e.target.value)} />
@@ -123,9 +123,9 @@ export function NewCollectionClient({ orgId, funds, incomeAccounts, donors }: Pr
           </div>
 
           {/* Counter signatures */}
-          <div className="border rounded-lg p-4 space-y-4">
+          <div className="rounded-[1.5rem] border border-border/70 bg-background/70 p-4 space-y-4">
             <p className="text-sm font-medium">Two-Person Count Verification</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Counter 1 Name *</Label>
                 <Input placeholder="Full name" value={counter1Name} onChange={(e) => setCounter1Name(e.target.value)} />
@@ -165,14 +165,15 @@ export function NewCollectionClient({ orgId, funds, incomeAccounts, donors }: Pr
       </Card>
 
       {/* Lines */}
-      <Card>
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle>Collection Lines</CardTitle>
           <CardDescription>Break down the collection by fund and income account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {lines.map((l) => (
-            <div key={l.key} className="flex items-end gap-2 border rounded-lg p-3">
+            <div key={l.key} className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3">
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_140px_1fr_auto_auto] xl:items-end">
               <div className="flex-1 space-y-1.5">
                 <Label className="text-xs">Fund</Label>
                 <select className={SELECT_CLASS} value={l.fund_id} onChange={(e) => updateLine(l.key, 'fund_id', e.target.value)}>
@@ -197,16 +198,17 @@ export function NewCollectionClient({ orgId, funds, incomeAccounts, donors }: Pr
                 </select>
               </div>
               <div className="flex items-center gap-1 pb-1">
-                <Checkbox checked={l.gift_aid_eligible} onCheckedChange={(v: boolean) => updateLine(l.key, 'gift_aid_eligible', v ? 'true' : 'false')} />
+                <Checkbox checked={l.gift_aid_eligible} onCheckedChange={(v: boolean) => updateLine(l.key, 'gift_aid_eligible', v)} />
                 <span className="text-xs text-muted-foreground">GA</span>
               </div>
               <Button variant="ghost" size="sm" onClick={() => removeLine(l.key)} disabled={lines.length <= 1} className="pb-1">
                 <Trash2 size={14} />
               </Button>
+              </div>
             </div>
           ))}
 
-          <div className="flex items-center justify-between pt-2">
+          <div className="app-toolbar pt-2">
             <Button variant="outline" size="sm" onClick={addLine}>
               <Plus size={14} className="mr-1" /> Add Line
             </Button>
@@ -217,7 +219,7 @@ export function NewCollectionClient({ orgId, funds, incomeAccounts, donors }: Pr
         </CardContent>
       </Card>
 
-      <div className="flex gap-3">
+      <div className="app-toolbar">
         <Button onClick={handleSave} disabled={isPending}>
           {isPending ? 'Saving…' : 'Save Collection'}
         </Button>

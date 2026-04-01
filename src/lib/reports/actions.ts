@@ -1,5 +1,6 @@
 'use server';
 
+import { assertActiveOrgAccess } from '@/lib/org';
 import { MONTH_KEYS, type MonthKey } from '@/lib/budgets/budgetMath';
 import {
   listBudgets,
@@ -40,6 +41,7 @@ export async function getBudgetVsActualReport(params: {
   fundId?: string | null;
 }): Promise<{ data: BvaReportData | null; error: string | null }> {
   const { orgId, year, budgetId, fundId } = params;
+  await assertActiveOrgAccess(orgId);
 
   // 1. List budgets for the year
   const { data: budgets, error: budgetsErr } = await listBudgets(orgId, year);
@@ -130,6 +132,7 @@ export async function getTopOverspendAlerts(params: {
   limit?: number;
 }): Promise<{ data: SOverspendAlert[]; error: string | null }> {
   const { orgId, year, fundId, period, monthIndex, limit = 5 } = params;
+  await assertActiveOrgAccess(orgId);
 
   // 1. Find a budget for this year
   const { data: budgets, error: budgetsErr } = await listBudgets(orgId, year);
@@ -183,6 +186,7 @@ export async function getDashboardData(params: {
   year: number;
 }): Promise<{ data: DashboardData; error: string | null }> {
   const { orgId, year } = params;
+  await assertActiveOrgAccess(orgId);
 
   // Check cache first
   const cacheKey = `dashboard:${orgId}:${year}`;
@@ -316,6 +320,7 @@ export async function getDashboardForecastSummary(params: {
   organisationId: string;
 }): Promise<{ data: SForecastSummary | null; error: string | null }> {
   const { organisationId } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { getAsOfPeriod } = await import('@/lib/forecast/getAsOfPeriod');
   const { sumMonths } = await import('@/lib/budgets/budgetMath');
@@ -404,6 +409,7 @@ export async function getForecastReport(params: {
   fundId?: string | null;
 }): Promise<{ data: SForecastReportData | null; error: string | null }> {
   const { organisationId, fundId } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { getAsOfPeriod } = await import('@/lib/forecast/getAsOfPeriod');
   const { sumMonths } = await import('@/lib/budgets/budgetMath');
@@ -526,14 +532,11 @@ export async function getIncomeExpenditureReport(params: {
   fundId?: string | null;
 }): Promise<{ data: SIEReport | null; error: string | null }> {
   const { organisationId, year, month, fundId } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { buildIncomeExpenditureReport } = await import(
     '@/lib/reports/incomeExpenditure'
   );
-
-  // Auth check
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
 
   const { createClient } = await import('@/lib/supabase/server');
   const supabase = await createClient();
@@ -614,14 +617,11 @@ export async function getBalanceSheetReport(params: {
   fundId?: string | null;
 }): Promise<{ data: SBSReport | null; error: string | null }> {
   const { organisationId, asOfDate, fundId } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { buildBalanceSheetReport } = await import(
     '@/lib/reports/balanceSheet'
   );
-
-  // Auth check
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
 
   const { createClient } = await import('@/lib/supabase/server');
   const supabase = await createClient();
@@ -739,14 +739,11 @@ export async function getFundMovementsReport(params: {
   fundFilter?: 'ALL' | 'RESTRICTED' | 'UNRESTRICTED' | 'DESIGNATED' | { fundId: string };
 }): Promise<{ data: SFMReport | null; error: string | null }> {
   const { organisationId, year, month, mode, fundFilter } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { buildFundMovementsReport } = await import(
     '@/lib/reports/fundMovements'
   );
-
-  // Auth check
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
 
   // 1. Compute period dates
   let startDate: string;
@@ -940,14 +937,11 @@ export async function getTrusteeSnapshot(params: {
   organisationId: string;
 }): Promise<{ data: STrusteeSnapshot | null; error: string | null }> {
   const { organisationId } = params;
+  await assertActiveOrgAccess(organisationId);
 
   const { buildTrusteeSnapshot } = await import(
     '@/lib/reports/trusteeSnapshot'
   );
-
-  // Auth check
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
 
   const today = new Date();
   const asOfDate = today.toISOString().slice(0, 10);
@@ -1092,9 +1086,7 @@ export async function getCashFlowReport(params: {
   month?: number;
 }): Promise<{ data: import('./types').SCashFlowReport | null; error: string | null }> {
   const { organisationId, year, month } = params;
-
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
+  await assertActiveOrgAccess(organisationId);
 
   const { createClient } = await import('@/lib/supabase/server');
   const supabase = await createClient();
@@ -1311,9 +1303,7 @@ export async function getQuarterlyReport(params: {
   year: number;
 }): Promise<{ data: import('./types').SQuarterlyReport | null; error: string | null }> {
   const { organisationId, year } = params;
-
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
+  await assertActiveOrgAccess(organisationId);
 
   const quarters: import('./types').SQuarterSummary[] = [];
   let annualIncome = 0;
@@ -1399,9 +1389,7 @@ export async function getAnnualReport(params: {
   year: number;
 }): Promise<{ data: import('./types').SAnnualReport | null; error: string | null }> {
   const { organisationId, year } = params;
-
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
+  await assertActiveOrgAccess(organisationId);
 
   const asOfDate = `${year}-12-31`;
   const priorAsOfDate = `${year - 1}-12-31`;
@@ -1450,9 +1438,7 @@ export async function getAGMReport(params: {
   year: number;
 }): Promise<{ data: import('./types').SAGMReport | null; error: string | null }> {
   const { organisationId, year } = params;
-
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
+  await assertActiveOrgAccess(organisationId);
 
   const [ieRes, fmRes] = await Promise.all([
     getIncomeExpenditureReport({ organisationId, year }),
@@ -1517,9 +1503,7 @@ export async function getDrillDownTransactions(params: {
   pageSize?: number;
 }): Promise<{ data: DrillDownTransaction[]; total: number; error: string | null }> {
   const { organisationId, accountId, startDate, endDate, fundId, page = 1, pageSize = 50 } = params;
-
-  const { getActiveOrg } = await import('@/lib/org');
-  await getActiveOrg();
+  await assertActiveOrgAccess(organisationId);
 
   const { createClient } = await import('@/lib/supabase/server');
   const supabase = await createClient();

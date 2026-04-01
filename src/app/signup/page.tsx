@@ -126,7 +126,7 @@ function SignupForm() {
 
       {/* Form */}
       <div className="flex-1 flex items-center justify-center px-6 py-8">
-        <div className="w-full max-w-[440px] space-y-6">
+        <div className="w-full max-w-[440px] rounded-[1.75rem] border border-border/70 bg-card/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-md space-y-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
             <p className="text-sm text-gray-500 mt-1">
@@ -286,7 +286,7 @@ function SignupForm() {
             {/* Submit */}
             <Button
               formAction={signup}
-              className="w-full h-11 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-medium text-sm shadow-md"
+              className="w-full h-11 rounded-xl"
             >
               Create Account
             </Button>
@@ -324,7 +324,7 @@ function SignupForm() {
 export default function SignupPage() {
   return (
     <Suspense>
-      <main className="flex min-h-screen">
+      <main className="flex min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_30%),linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.96))]">
         <div className="hidden lg:block lg:w-1/2">
           <BrandPanel />
         </div>

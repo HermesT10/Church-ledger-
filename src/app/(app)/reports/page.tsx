@@ -168,21 +168,24 @@ export default async function ReportsLandingPage() {
         subtitle="Generate financial statements, analysis reports, and trustee packs — all derived from the General Ledger."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {REPORT_CARDS.map((card) => {
           const Icon = card.icon;
           return (
             <Link key={card.href} href={card.href} className="group">
-              <Card className={`h-full rounded-2xl border shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-primary/20 ${card.bg} ${card.border}`}>
-                <CardContent className="pt-5 pb-4 px-5 flex items-start gap-3">
-                  <div className={`rounded-lg p-2 ${card.bg} shrink-0`}>
+              <Card className={`h-full border transition-all hover:-translate-y-0.5 hover:shadow-md hover:ring-1 hover:ring-primary/15 ${card.border}`}>
+                <CardContent className="flex items-start gap-4 px-5 pb-5 pt-5">
+                  <div className={`rounded-2xl p-3 shadow-inner ${card.bg} shrink-0`}>
                     <Icon size={18} className={card.color} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold group-hover:text-primary transition-colors">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Report
+                    </p>
+                    <p className="mt-2 text-base font-semibold group-hover:text-primary transition-colors">
                       {card.title}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                    <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
                       {card.description}
                     </p>
                   </div>

@@ -68,7 +68,7 @@ export function ConfirmDestructiveDialog({
         </DialogHeader>
 
         {requiresPhrase && (
-          <div className="space-y-2 py-2">
+          <div className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4">
             <Label htmlFor="confirm-phrase" className="text-sm">
               Type{' '}
               <span className="font-mono font-bold">{confirmPhrase}</span>{' '}

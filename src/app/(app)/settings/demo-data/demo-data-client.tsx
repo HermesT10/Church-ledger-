@@ -139,7 +139,7 @@ export function DemoDataClient({ orgId, initialBatchInfo }: DemoDataClientProps)
       </Card>
 
       {/* Generate Section */}
-      <Card className="border shadow-sm">
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle>Generate Demo Data</CardTitle>
           <CardDescription>
@@ -174,7 +174,7 @@ export function DemoDataClient({ orgId, initialBatchInfo }: DemoDataClientProps)
 
       {/* Clear Section (only shown if demo data exists) */}
       {hasDemoData && (
-        <Card className="border shadow-sm">
+        <Card className="app-surface">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -190,7 +190,7 @@ export function DemoDataClient({ orgId, initialBatchInfo }: DemoDataClientProps)
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Demo record counts */}
-            <div className="rounded-lg border p-4">
+            <div className="rounded-[1.25rem] border border-border/70 bg-background/70 p-4">
               <p className="mb-2 text-sm font-medium">
                 Demo records by table
               </p>

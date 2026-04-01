@@ -7,7 +7,10 @@ import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
-import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import {
+  getFinancialPeriodIdForDate,
+  isDateInLockedPeriod,
+} from '@/lib/periods/actions';
 import type {
   CashCollectionRow,
   CashCollectionDetail,
@@ -371,7 +374,7 @@ export async function postCashCollection(
 ): Promise<{ success: boolean; error: string | null }> {
   await assertWriteAllowed();
   const { orgId, role, user } = await getActiveOrg();
-  try { assertCanPerform(role, 'update', 'cash'); }
+  try { assertCanPerform(role, 'post', 'cash'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
 
   const supabase = await createClient();
@@ -409,6 +412,7 @@ export async function postCashCollection(
 
   const admin = createAdminClient();
   const memo = `Cash collection: ${c.service_name}`;
+  const periodId = await getFinancialPeriodIdForDate(c.collected_date);
 
   // Create journal
   const { data: journal, error: journalErr } = await admin
@@ -418,6 +422,7 @@ export async function postCashCollection(
       journal_date: c.collected_date,
       memo,
       status: 'draft',
+      period_id: periodId,
       source_type: 'cash_collection',
       source_id: collectionId,
       created_by: user.id,
@@ -458,16 +463,26 @@ export async function postCashCollection(
   }
 
   // Post journal
-  await admin
+  const { error: postErr } = await admin
     .from('journals')
     .update({ status: 'posted', posted_at: new Date().toISOString() })
     .eq('id', journal.id);
 
+  if (postErr) {
+    await admin.from('journal_lines').delete().eq('journal_id', journal.id);
+    await admin.from('journals').delete().eq('id', journal.id);
+    return { success: false, error: postErr.message };
+  }
+
   // Update collection
-  await admin
+  const { error: collectionUpdateErr } = await admin
     .from('cash_collections')
     .update({ status: 'posted', posted_transaction_id: journal.id })
     .eq('id', collectionId);
+
+  if (collectionUpdateErr) {
+    return { success: false, error: collectionUpdateErr.message };
+  }
 
   invalidateOrgReportCache(orgId);
 
@@ -583,7 +598,7 @@ export async function postCashSpend(
 ): Promise<{ success: boolean; error: string | null; balanceWarning?: boolean }> {
   await assertWriteAllowed();
   const { orgId, role, user } = await getActiveOrg();
-  try { assertCanPerform(role, 'update', 'cash'); }
+  try { assertCanPerform(role, 'post', 'cash'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
 
   const supabase = await createClient();
@@ -629,6 +644,7 @@ export async function postCashSpend(
 
   const admin = createAdminClient();
   const memo = `Cash spend: ${spend.paid_to} - ${spend.description}`;
+  const periodId = await getFinancialPeriodIdForDate(spend.spend_date);
 
   const { data: journal, error: journalErr } = await admin
     .from('journals')
@@ -637,6 +653,7 @@ export async function postCashSpend(
       journal_date: spend.spend_date,
       memo,
       status: 'draft',
+      period_id: periodId,
       source_type: 'cash_spend',
       source_id: spendId,
       created_by: user.id,
@@ -675,15 +692,25 @@ export async function postCashSpend(
     return { success: false, error: jlErr.message };
   }
 
-  await admin
+  const { error: postErr } = await admin
     .from('journals')
     .update({ status: 'posted', posted_at: new Date().toISOString() })
     .eq('id', journal.id);
 
-  await admin
+  if (postErr) {
+    await admin.from('journal_lines').delete().eq('journal_id', journal.id);
+    await admin.from('journals').delete().eq('id', journal.id);
+    return { success: false, error: postErr.message };
+  }
+
+  const { error: spendUpdateErr } = await admin
     .from('cash_spends')
     .update({ status: 'posted', posted_transaction_id: journal.id })
     .eq('id', spendId);
+
+  if (spendUpdateErr) {
+    return { success: false, error: spendUpdateErr.message };
+  }
 
   invalidateOrgReportCache(orgId);
 
@@ -898,7 +925,7 @@ export async function postCashDeposit(
 ): Promise<{ success: boolean; error: string | null }> {
   await assertWriteAllowed();
   const { orgId, role, user } = await getActiveOrg();
-  try { assertCanPerform(role, 'update', 'cash'); }
+  try { assertCanPerform(role, 'post', 'cash'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
 
   const supabase = await createClient();
@@ -933,6 +960,7 @@ export async function postCashDeposit(
   const admin = createAdminClient();
   const depositAmount = Number(deposit.total_amount_pence);
   const memo = `Cash deposit to ${bankAccount.name}`;
+  const periodId = await getFinancialPeriodIdForDate(deposit.deposit_date);
 
   const { data: journal, error: journalErr } = await admin
     .from('journals')
@@ -941,6 +969,7 @@ export async function postCashDeposit(
       journal_date: deposit.deposit_date,
       memo,
       status: 'draft',
+      period_id: periodId,
       source_type: 'cash_deposit',
       source_id: depositId,
       created_by: user.id,
@@ -979,15 +1008,25 @@ export async function postCashDeposit(
     return { success: false, error: jlErr.message };
   }
 
-  await admin
+  const { error: postErr } = await admin
     .from('journals')
     .update({ status: 'posted', posted_at: new Date().toISOString() })
     .eq('id', journal.id);
 
-  await admin
+  if (postErr) {
+    await admin.from('journal_lines').delete().eq('journal_id', journal.id);
+    await admin.from('journals').delete().eq('id', journal.id);
+    return { success: false, error: postErr.message };
+  }
+
+  const { error: depositUpdateErr } = await admin
     .from('cash_deposits')
     .update({ status: 'posted', posted_transaction_id: journal.id })
     .eq('id', depositId);
+
+  if (depositUpdateErr) {
+    return { success: false, error: depositUpdateErr.message };
+  }
 
   // Mark linked collections as banked
   const { data: junctions } = await supabase
@@ -997,10 +1036,14 @@ export async function postCashDeposit(
 
   const collectionIds = (junctions ?? []).map((j) => j.cash_collection_id);
   if (collectionIds.length > 0) {
-    await admin
+    const { error: collectionsUpdateErr } = await admin
       .from('cash_collections')
       .update({ status: 'banked', banked_at: new Date().toISOString() })
       .in('id', collectionIds);
+
+    if (collectionsUpdateErr) {
+      return { success: false, error: collectionsUpdateErr.message };
+    }
   }
 
   invalidateOrgReportCache(orgId);

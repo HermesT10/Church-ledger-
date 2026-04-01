@@ -8,7 +8,10 @@ import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
-import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import {
+  getFinancialPeriodIdForDate,
+  isDateInLockedPeriod,
+} from '@/lib/periods/actions';
 import {
   buildJournalLinesFromBill,
   buildPaymentRunJournalLines,
@@ -445,9 +448,12 @@ export async function updateBill(formData: FormData) {
 
 export async function approveBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const id = formData.get('id') as string;
   if (!id) redirect('/bills');
+
+  try { assertCanPerform(role, 'approve', 'bills'); }
+  catch (e) { redirect(`/bills/${id}?error=` + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.')); }
 
   const supabase = await createClient();
 
@@ -499,9 +505,12 @@ export async function approveBill(formData: FormData) {
 
 export async function postBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const id = formData.get('id') as string;
   if (!id) redirect('/bills');
+
+  try { assertCanPerform(role, 'post', 'bills'); }
+  catch (e) { redirect(`/bills/${id}?error=` + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.')); }
 
   const supabase = await createClient();
   const admin = createAdminClient();
@@ -557,6 +566,7 @@ export async function postBill(formData: FormData) {
   const supplierName =
     (bill.suppliers as { name: string } | null)?.name ?? 'Unknown supplier';
   const memo = `Bill ${bill.bill_number ?? id.slice(0, 8)} – ${supplierName}`;
+  const periodId = await getFinancialPeriodIdForDate(bill.bill_date);
 
   const journalLineInputs = buildJournalLinesFromBill(
     billLines.map((bl) => ({
@@ -577,6 +587,7 @@ export async function postBill(formData: FormData) {
       journal_date: bill.bill_date,
       memo,
       status: 'draft',
+      period_id: periodId,
       source_type: 'bill',
       source_id: id,
       created_by: user.id,
@@ -933,6 +944,10 @@ export async function postPaymentRun(
     return { success: true, error: null };
   }
 
+  if (run.status !== 'draft') {
+    return { success: false, error: 'Only draft payment runs can be posted.' };
+  }
+
   // Period lock check
   const locked = await isDateInLockedPeriod(run.run_date);
   if (locked) {
@@ -1033,10 +1048,16 @@ export async function postPaymentRun(
     return { success: false, error: jLinesErr.message };
   }
 
+  const periodId = await getFinancialPeriodIdForDate(run.run_date);
+
   // 7. Post the journal
   const { error: postErr } = await admin
     .from('journals')
-    .update({ status: 'posted', posted_at: new Date().toISOString() })
+    .update({
+      status: 'posted',
+      posted_at: new Date().toISOString(),
+      period_id: periodId,
+    })
     .eq('id', journal.id);
 
   if (postErr) {

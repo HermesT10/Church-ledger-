@@ -8,7 +8,7 @@ export function PageShell({
   className?: string;
 }) {
   return (
-    <div className={`max-w-7xl mx-auto px-6 py-6 space-y-6 ${className ?? ''}`}>
+    <div className={`app-page-shell ${className ?? ''}`}>
       {children}
     </div>
   );

@@ -57,7 +57,7 @@ export default async function BankingPage() {
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Bank Accounts"
           value={totalCount}
@@ -98,7 +98,7 @@ export default async function BankingPage() {
 
       {/* Table */}
       {allAccounts.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm overflow-x-auto">
+        <div className="app-table-shell">
           <Table>
             <TableHeader>
               <TableRow>
@@ -183,7 +183,7 @@ export default async function BankingPage() {
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
+        <div className="app-empty-state">
           <Landmark className="mx-auto h-10 w-10 text-muted-foreground/40" />
           <p className="mt-3 text-sm text-muted-foreground">
             No bank accounts found. {canEdit && 'Add one to get started.'}

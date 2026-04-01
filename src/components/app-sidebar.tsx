@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
@@ -29,8 +29,11 @@ import {
   PanelLeftClose,
   ChevronDown,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Logo } from '@/components/logo';
+import { switchActiveOrg } from '@/lib/org-actions';
+import type { OrgOption } from '@/lib/org';
 
 /* ------------------------------------------------------------------ */
 /*  Role-based visibility tiers                                        */
@@ -190,7 +193,9 @@ function buildInitialExpanded(pathname: string): Record<string, boolean> {
 
 interface AppSidebarProps {
   userName: string;
+  currentOrgId: string;
   orgName: string;
+  availableOrgs: OrgOption[];
   role: string;
   collapsed: boolean;
   onToggle: () => void;
@@ -203,14 +208,18 @@ interface AppSidebarProps {
 
 export function AppSidebar({
   userName,
+  currentOrgId,
   orgName,
+  availableOrgs,
   role,
   collapsed,
   onToggle,
   onLinkClick,
 }: AppSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const typedRole = role as RoleKey;
+  const [isSwitching, startTransition] = useTransition();
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     buildInitialExpanded(pathname),
@@ -254,8 +263,32 @@ export function AppSidebar({
     .toUpperCase()
     .slice(0, 2);
 
+  const handleOrgChange = (nextOrgId: string) => {
+    if (!nextOrgId || nextOrgId === currentOrgId) {
+      return;
+    }
+
+    startTransition(async () => {
+      const targetOrg = availableOrgs.find((org) => org.orgId === nextOrgId);
+      const { error } = await switchActiveOrg(nextOrgId);
+
+      if (error) {
+        toast.error(error);
+        return;
+      }
+
+      toast.success(
+        targetOrg
+          ? `Switched to ${targetOrg.orgName}.`
+          : 'Organisation changed.',
+      );
+      router.refresh();
+      onLinkClick?.();
+    });
+  };
+
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
       {/* ---- Header with toggle ---- */}
       <div
         className={`flex items-center border-b border-sidebar-border ${
@@ -265,7 +298,7 @@ export function AppSidebar({
         {collapsed ? (
           <button
             onClick={onToggle}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-sidebar-border bg-white/80 text-sidebar-foreground/70 shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             title="Expand sidebar"
           >
             <Menu size={20} />
@@ -273,12 +306,29 @@ export function AppSidebar({
         ) : (
           <>
             <Logo size={32} />
-            <span className="flex-1 text-base font-semibold tracking-tight truncate">
-              {orgName}
-            </span>
+            <div className="min-w-0 flex-1">
+              <span className="block text-base font-semibold tracking-tight truncate">
+                {orgName}
+              </span>
+              {availableOrgs.length > 1 && (
+                <select
+                  value={currentOrgId}
+                  onChange={(e) => handleOrgChange(e.target.value)}
+                  disabled={isSwitching}
+                  aria-label="Switch organisation"
+                  className="mt-1 h-8 w-full rounded-lg border border-sidebar-border bg-white/78 px-2.5 text-[11px] font-medium text-sidebar-foreground/80 outline-none transition-colors hover:border-sidebar-foreground/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {availableOrgs.map((org) => (
+                    <option key={org.orgId} value={org.orgId}>
+                      {org.orgName}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <button
               onClick={onToggle}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-sidebar-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors shrink-0"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               title="Collapse sidebar"
             >
               <PanelLeftClose size={18} />
@@ -290,7 +340,7 @@ export function AppSidebar({
       {/* ---- Navigation ---- */}
       <nav
         className={`flex-1 overflow-y-auto py-3 ${
-          collapsed ? 'px-2 space-y-1' : 'px-3 space-y-4'
+          collapsed ? 'px-2 space-y-1.5' : 'px-3 space-y-4'
         }`}
       >
         {collapsed ? (
@@ -305,11 +355,11 @@ export function AppSidebar({
                 onClick={onLinkClick}
                 title={item.label}
                 className={`
-                  flex items-center justify-center rounded-lg py-2.5 px-2 transition-colors
+                  flex items-center justify-center rounded-2xl border border-transparent py-2.5 px-2 transition-colors
                   ${
                     active
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                      ? 'border-primary/10 bg-sidebar-accent text-sidebar-accent-foreground shadow-sm'
+                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
                   }
                 `}
               >
@@ -330,12 +380,12 @@ export function AppSidebar({
                   onClick={() => toggleGroup(group.title)}
                   aria-expanded={isExpanded}
                   className={`
-                    w-full flex items-center justify-between rounded-md px-3 py-1.5
+                    w-full flex items-center justify-between rounded-xl px-3 py-1.5
                     text-[10px] uppercase tracking-widest font-semibold transition-colors
                     ${
                       hasActive
                         ? 'text-sidebar-foreground/70'
-                        : 'text-sidebar-foreground/40 hover:text-sidebar-foreground/60'
+                        : 'text-sidebar-foreground/45 hover:text-sidebar-foreground/65'
                     }
                   `}
                 >
@@ -364,11 +414,11 @@ export function AppSidebar({
                           href={item.href}
                           onClick={onLinkClick}
                           className={`
-                            flex items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors
+                            flex items-center gap-3 rounded-2xl border border-transparent py-2.5 pl-4 pr-3 text-sm font-medium transition-colors
                             ${
                               active
-                                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                                : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                                ? 'border-primary/10 bg-sidebar-accent text-sidebar-accent-foreground shadow-sm'
+                                : 'text-sidebar-foreground/72 hover:bg-sidebar-accent hover:text-sidebar-foreground'
                             }
                           `}
                         >
@@ -407,16 +457,16 @@ export function AppSidebar({
             className="flex justify-center"
             title={userName || 'User'}
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold shadow">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6f5ef9] to-[#8c7cff] text-xs font-bold text-white shadow-[0_12px_24px_rgba(111,94,249,0.32)]">
               {initials}
             </div>
           </Link>
         ) : (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 rounded-2xl border border-sidebar-border bg-white/72 px-3 py-3 shadow-sm">
             <Link
               href="/profile"
               onClick={onLinkClick}
-              className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold shadow shrink-0 hover:opacity-90 transition-opacity"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6f5ef9] to-[#8c7cff] text-xs font-bold text-white shadow-[0_12px_24px_rgba(111,94,249,0.32)] transition-opacity hover:opacity-90"
             >
               {initials}
             </Link>

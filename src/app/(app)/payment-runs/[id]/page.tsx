@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { getPaymentRun } from '@/lib/bills/actions';
 import { listBankAccounts } from '@/lib/banking/bankAccounts';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { PaymentRunDetailClient } from './payment-run-detail-client';
 
 export default async function PaymentRunDetailPage({
@@ -45,23 +47,20 @@ export default async function PaymentRunDetailPage({
   });
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
+    <PageShell className="max-w-6xl">
       <div>
-        <Link
-          href="/payment-runs"
-          className="text-sm text-muted-foreground hover:underline"
-        >
+        <Link href="/payment-runs" className="text-sm text-muted-foreground hover:underline">
           &larr; Back to Payment Runs
         </Link>
-        <h1 className="text-2xl font-bold mt-2">
-          Payment Run {id.slice(0, 8)}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {run.status === 'draft'
-            ? 'Review invoices and post this payment run.'
-            : 'This payment run has been posted.'}
-        </p>
       </div>
+      <PageHeader
+        title={`Payment Run ${id.slice(0, 8)}`}
+        subtitle={
+          run.status === 'draft'
+            ? 'Review invoices, select a payment account, and post this batch.'
+            : 'Review the posted payment batch, invoice coverage, and exports.'
+        }
+      />
       <PaymentRunDetailClient
         run={{
           id: run.id,
@@ -77,6 +76,6 @@ export default async function PaymentRunDetailPage({
         }))}
         canEdit={canEdit}
       />
-    </div>
+    </PageShell>
   );
 }

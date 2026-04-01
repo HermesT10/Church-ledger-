@@ -45,7 +45,7 @@ export default async function BudgetsPage() {
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total Budgets"
           value={totalCount}
@@ -82,7 +82,7 @@ export default async function BudgetsPage() {
 
       {/* Table */}
       {allBudgets.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm overflow-x-auto">
+        <div className="app-surface overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -120,7 +120,7 @@ export default async function BudgetsPage() {
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
+        <div className="app-empty-state">
           <BarChart3 className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
             No budgets found. {canEdit && 'Create one to get started.'}

@@ -27,8 +27,8 @@ function FormInner({ defaultOrgName, defaultCity, defaultRole }: Props) {
   const error = searchParams.get('error');
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md rounded-2xl border shadow-sm bg-white/70 border-slate-200/40">
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(96,165,250,0.16),_transparent_35%),linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.94))] px-4 py-10">
+      <Card className="w-full max-w-md border-border/70 bg-card/90 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-3">
             <Logo size={48} />

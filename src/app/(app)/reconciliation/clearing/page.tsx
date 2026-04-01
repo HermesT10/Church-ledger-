@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { getClearingReconciliation } from '@/lib/reconciliation/actions';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { ClearingClient } from './clearing-client';
 
 export default async function ClearingReconciliationPage() {
@@ -13,18 +15,12 @@ export default async function ClearingReconciliationPage() {
   const { data, error } = await getClearingReconciliation(orgId);
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          Clearing Account Reconciliation
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Per-provider clearing account balances. Non-zero balances indicate
-          outstanding platform payouts.
-        </p>
-      </div>
-
+    <PageShell className="max-w-7xl">
+      <PageHeader
+        title="Clearing Account Reconciliation"
+        subtitle="Monitor provider clearing balances and identify outstanding platform payouts."
+      />
       <ClearingClient rows={data} error={error} />
-    </div>
+    </PageShell>
   );
 }

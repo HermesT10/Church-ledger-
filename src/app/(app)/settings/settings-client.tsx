@@ -82,7 +82,14 @@ import {
 /* ------------------------------------------------------------------ */
 
 const SELECT_CLASS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+const SETTINGS_CARD_CLASS = 'app-surface';
+const SETTINGS_TABLE_WRAP_CLASS =
+  'app-table-shell';
+const SETTINGS_PANEL_CLASS =
+  'rounded-[1.25rem] border border-border/70 bg-background/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]';
+const SETTINGS_ROW_CLASS =
+  'flex items-center justify-between gap-4 rounded-[1.25rem] border border-border/70 bg-background/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition-colors duration-150 hover:bg-accent/18';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -415,7 +422,7 @@ export function SettingsClient({
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
 
         {/* ==== 1. Organisation Settings  (left col, order-1 mobile) ==== */}
-        <Card className="order-1 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-1 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -447,8 +454,8 @@ export function SettingsClient({
             {/* Logo placeholder */}
             <div className="space-y-1.5">
               <Label>Logo</Label>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center text-muted-foreground text-xs">
+              <div className={`flex items-center gap-3 ${SETTINGS_PANEL_CLASS}`}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-xs text-muted-foreground">
                   Logo
                 </div>
                 <Badge variant="secondary" className="text-xs">Coming soon</Badge>
@@ -518,7 +525,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 2. Team & Roles  (right col, order-2 mobile) ==== */}
-        <Card className="order-2 md:col-span-4 rounded-2xl shadow-sm">
+        <Card className={`order-2 md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -587,7 +594,7 @@ export function SettingsClient({
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Active Members Table */}
-            <div className="rounded-md border overflow-x-auto">
+            <div className={SETTINGS_TABLE_WRAP_CLASS}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -734,7 +741,7 @@ export function SettingsClient({
             {isAdmin && invites.length > 0 && (
               <div>
                 <p className="text-sm font-medium mb-2">Pending Invites</p>
-                <div className="rounded-md border overflow-x-auto">
+                <div className={SETTINGS_TABLE_WRAP_CLASS}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -790,7 +797,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 3. Accounting Settings  (left col, order-3 mobile) ==== */}
-        <Card className="order-3 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -897,7 +904,7 @@ export function SettingsClient({
             </div>
 
             {/* Toggle: require fund on journal lines */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Require Fund on Journal Lines</p>
                 <p className="text-xs text-muted-foreground">
@@ -915,7 +922,7 @@ export function SettingsClient({
             </div>
 
             {/* Toggle: lock posting after month close */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div className="flex items-center gap-2">
                 <div>
                   <p className="text-sm font-medium">Lock Posting After Month Close</p>
@@ -931,7 +938,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 3b. Payroll Accounts  (left col, order-3b mobile) ==== */}
-        <Card className="order-3 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1058,7 +1065,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 3c. Gift Aid Accounts  (left col, order-3c mobile) ==== */}
-        <Card className="order-3 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1134,7 +1141,7 @@ export function SettingsClient({
                 </p>
               </div>
             </div>
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Proportional Fund Allocation</p>
                 <p className="text-xs text-muted-foreground">
@@ -1155,7 +1162,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 3d. Donations Accounts  (left col, order-3d mobile) ==== */}
-        <Card className="order-3 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1235,7 +1242,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== Bank Accounts  (manage & archive) ==== */}
-        <Card className="order-3e md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3e md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1263,7 +1270,7 @@ export function SettingsClient({
             <CardDescription>Manage bank accounts. Archiving preserves transaction history for reporting.</CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4">
-            <div className="rounded-md border overflow-x-auto">
+            <div className={SETTINGS_TABLE_WRAP_CLASS}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1317,7 +1324,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== Data Controls ==== */}
-        <Card className="order-3f md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-3f md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center gap-2">
               <AlertTriangle size={18} className="text-muted-foreground" />
@@ -1326,7 +1333,7 @@ export function SettingsClient({
             <CardDescription>Reset your workspace or request data erasure.</CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-6">
-            <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Reset my workspace</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -1338,7 +1345,7 @@ export function SettingsClient({
                 Reset
               </Button>
             </div>
-            <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Request data erasure</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -1363,7 +1370,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 4. Notifications  (right col, order-4 mobile) ==== */}
-        <Card className="order-4 md:col-span-4 rounded-2xl shadow-sm">
+        <Card className={`order-4 md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1374,7 +1381,7 @@ export function SettingsClient({
             <CardDescription>Control email and alert preferences.</CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Email Notifications</p>
                 <p className="text-xs text-muted-foreground">
@@ -1391,7 +1398,7 @@ export function SettingsClient({
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Overspend Alerts</p>
                 <p className="text-xs text-muted-foreground">
@@ -1408,7 +1415,7 @@ export function SettingsClient({
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Month-End Reminder</p>
                 <p className="text-xs text-muted-foreground">
@@ -1428,14 +1435,14 @@ export function SettingsClient({
         </Card>
 
         {/* ==== Workflow Settings ==== */}
-        <Card className="order-[4.5] md:col-span-4 rounded-2xl shadow-sm">
+        <Card className={`order-[4.5] md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-base">Workflow Settings</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
-            <div>
+            <div className={SETTINGS_PANEL_CLASS}>
               <label className="text-sm font-medium">Receipt Compliance Days</label>
               <p className="text-xs text-muted-foreground mb-2">
                 Number of days before a missing receipt is flagged as late.
@@ -1460,7 +1467,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 5. Budget Settings  (left col, order-5 mobile) ==== */}
-        <Card className="order-5 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-5 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1487,7 +1494,7 @@ export function SettingsClient({
             </div>
 
             {/* Allow fund-level budgets */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Allow Fund-Level Budgets</p>
                 <p className="text-xs text-muted-foreground">
@@ -1507,7 +1514,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 6. Security  (right col, order-6 mobile) ==== */}
-        <Card className="order-6 md:col-span-4 rounded-2xl shadow-sm">
+        <Card className={`order-6 md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1529,7 +1536,7 @@ export function SettingsClient({
                 Change Password
               </Button>
             ) : (
-              <div className="space-y-3 rounded-md border p-4">
+              <div className={`space-y-3 ${SETTINGS_PANEL_CLASS}`}>
                 <div className="space-y-1.5">
                   <Label>New Password</Label>
                   <Input
@@ -1573,7 +1580,7 @@ export function SettingsClient({
             )}
 
             {/* Active sessions */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Active Sessions</p>
                 <p className="text-xs text-muted-foreground">
@@ -1584,7 +1591,7 @@ export function SettingsClient({
             </div>
 
             {/* Force logout */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Force Logout All</p>
                 <p className="text-xs text-muted-foreground">
@@ -1602,7 +1609,7 @@ export function SettingsClient({
             </div>
 
             {/* 2FA */}
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div className="flex items-center gap-2">
                 <div>
                   <p className="text-sm font-medium">Two-Factor Auth</p>
@@ -1618,7 +1625,7 @@ export function SettingsClient({
         </Card>
 
         {/* ==== 7. Data & Exports  (left col, order-7 mobile) ==== */}
-        <Card className="order-7 md:col-span-8 rounded-2xl shadow-sm">
+        <Card className={`order-7 md:col-span-8 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1629,7 +1636,7 @@ export function SettingsClient({
             <CardDescription>Export your data for backup or analysis.</CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Export All Data (CSV)</p>
                 <p className="text-xs text-muted-foreground">
@@ -1644,7 +1651,7 @@ export function SettingsClient({
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div>
                 <p className="text-sm font-medium">Audit Log</p>
                 <p className="text-xs text-muted-foreground">
@@ -1658,7 +1665,7 @@ export function SettingsClient({
               </Link>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className={SETTINGS_ROW_CLASS}>
               <div className="flex items-start gap-2">
                 <HardDrive size={16} className="text-muted-foreground mt-0.5 shrink-0" />
                 <div>
@@ -1685,7 +1692,7 @@ export function SettingsClient({
 
         {/* ==== Demo Data (admin only) ==== */}
         {role === 'admin' && (
-          <Card className="order-8 md:col-span-4 rounded-2xl shadow-sm">
+          <Card className={`order-8 md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
             <CardHeader className="p-6 pb-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1711,7 +1718,7 @@ export function SettingsClient({
         )}
 
         {/* ==== 8. System Info  (right col, order-8 mobile) ==== */}
-        <Card className="order-8 md:col-span-4 rounded-2xl shadow-sm">
+        <Card className={`order-8 md:col-span-4 ${SETTINGS_CARD_CLASS}`}>
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

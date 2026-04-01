@@ -75,7 +75,7 @@ export default async function SuppliersPage({
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total Suppliers"
           value={totalCount}
@@ -111,37 +111,16 @@ export default async function SuppliersPage({
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Link
-          href="/suppliers"
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            !outstandingOnly && activeOnly
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-          }`}
-        >
-          Active Only
-        </Link>
-        <Link
-          href="/suppliers?active=all"
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            !activeOnly && !outstandingOnly
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-          }`}
-        >
-          All Suppliers
-        </Link>
-        <Link
-          href="/suppliers?filter=outstanding"
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            outstandingOnly
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-          }`}
-        >
-          Has Outstanding
-        </Link>
+      <div className="app-filter-bar">
+        <Button asChild variant={!outstandingOnly && activeOnly ? 'default' : 'outline'} size="sm">
+          <Link href="/suppliers">Active Only</Link>
+        </Button>
+        <Button asChild variant={!activeOnly && !outstandingOnly ? 'default' : 'outline'} size="sm">
+          <Link href="/suppliers?active=all">All Suppliers</Link>
+        </Button>
+        <Button asChild variant={outstandingOnly ? 'default' : 'outline'} size="sm">
+          <Link href="/suppliers?filter=outstanding">Has Outstanding</Link>
+        </Button>
       </div>
 
       {/* Error */}
@@ -149,7 +128,7 @@ export default async function SuppliersPage({
 
       {/* Table */}
       {suppliers.length > 0 ? (
-        <Card className="border rounded-2xl shadow-sm bg-indigo-100/45 border-indigo-200/50">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle>
               Suppliers ({suppliers.length})
@@ -159,7 +138,7 @@ export default async function SuppliersPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="app-table-shell">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -219,7 +198,7 @@ export default async function SuppliersPage({
           </CardContent>
         </Card>
       ) : (
-        <Card className="border shadow-sm rounded-2xl bg-slate-100/55 border-slate-200/40">
+        <Card className="border shadow-sm bg-slate-100/55 border-slate-200/40">
           <CardContent className="py-12 text-center space-y-3">
             <Truck className="mx-auto h-10 w-10 text-muted-foreground/40" />
             <p className="text-muted-foreground">

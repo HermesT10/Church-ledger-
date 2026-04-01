@@ -37,8 +37,7 @@ export function CollectionDetailClient({ collection: c, canEdit }: { collection:
 
   return (
     <div className="space-y-6">
-      {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Date</p><p className="text-lg font-semibold">{formatDate(c.collected_date)}</p></CardContent></Card>
         <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Service</p><p className="text-lg font-semibold">{c.service_name}</p></CardContent></Card>
         <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Total</p><p className="text-lg font-semibold">{formatPounds(c.total_amount_pence)}</p></CardContent></Card>
@@ -46,11 +45,11 @@ export function CollectionDetailClient({ collection: c, canEdit }: { collection:
       </div>
 
       {/* Signatures */}
-      <Card>
+      <Card className="app-surface">
         <CardHeader><CardTitle className="text-base">Count Verification</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="border rounded-lg p-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3">
               <p className="text-sm font-medium">{c.counted_by_name_1}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {c.counter_1_confirmed
@@ -59,7 +58,7 @@ export function CollectionDetailClient({ collection: c, canEdit }: { collection:
                 }
               </p>
             </div>
-            <div className="border rounded-lg p-3">
+            <div className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3">
               <p className="text-sm font-medium">{c.counted_by_name_2}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {c.counter_2_confirmed
@@ -73,10 +72,10 @@ export function CollectionDetailClient({ collection: c, canEdit }: { collection:
       </Card>
 
       {/* Lines */}
-      <Card>
+      <Card className="app-surface">
         <CardHeader><CardTitle className="text-base">Collection Lines</CardTitle><CardDescription>{c.lines.length} line(s)</CardDescription></CardHeader>
         <CardContent>
-          <div className="rounded-md border overflow-x-auto">
+          <div className="app-table-shell">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -94,26 +93,25 @@ export function CollectionDetailClient({ collection: c, canEdit }: { collection:
                     <TableCell>{l.income_account_name}</TableCell>
                     <TableCell>{l.donor_name ?? 'Anonymous'}</TableCell>
                     <TableCell className="text-center">{l.gift_aid_eligible ? '✓' : '—'}</TableCell>
-                    <TableCell className="text-right font-medium">{formatPounds(l.amount_pence)}</TableCell>
+                    <TableCell className="text-right font-medium app-table-amount-positive">{formatPounds(l.amount_pence)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-          <div className="flex justify-end border-t pt-3 mt-3">
+          <div className="mt-3 flex justify-end border-t border-border/70 pt-3">
             <span className="text-sm font-semibold">Total: {formatPounds(c.total_amount_pence)}</span>
           </div>
         </CardContent>
       </Card>
 
       {c.notes && (
-        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Notes</p><p className="text-sm mt-1">{c.notes}</p></CardContent></Card>
+        <Card className="app-surface"><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Notes</p><p className="mt-1 text-sm">{c.notes}</p></CardContent></Card>
       )}
 
-      {/* Actions */}
-      <Card>
+      <Card className="app-surface">
         <CardHeader><CardTitle className="text-base">Actions</CardTitle></CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
+        <CardContent className="app-toolbar">
           {c.status === 'draft' && canEdit && (
             <Button onClick={handlePost} disabled={isPending}>
               {isPending ? 'Posting…' : 'Post Collection'}

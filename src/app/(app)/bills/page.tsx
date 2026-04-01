@@ -93,7 +93,7 @@ export default async function BillsPage({
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard
           title="Total Invoices"
           value={totalCount}
@@ -147,7 +147,7 @@ export default async function BillsPage({
       </div>
 
       {/* Status filters */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="app-filter-bar">
         <Button
           asChild
           variant={!params.status || params.status === 'all' ? 'default' : 'outline'}
@@ -169,7 +169,7 @@ export default async function BillsPage({
 
       {/* Table */}
       {allBills.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm overflow-x-auto">
+        <div className="app-table-shell">
           <Table>
             <TableHeader>
               <TableRow>
@@ -226,7 +226,7 @@ export default async function BillsPage({
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
+        <div className="app-empty-state">
           <Receipt className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
             No invoices found. {canEdit && 'Create one to get started.'}

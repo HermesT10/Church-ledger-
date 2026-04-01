@@ -75,11 +75,11 @@ export function SpendDetailClient({ spend, canEdit, isAdmin }: Props) {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <Card>
+    <div className="max-w-3xl space-y-6">
+      <Card className="app-surface">
         <CardHeader><CardTitle className="text-base">Cash Spend Details</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
             <div><p className="text-muted-foreground">Date</p><p className="font-medium">{formatDate(spend.spend_date)}</p></div>
             <div><p className="text-muted-foreground">Amount</p><p className="font-medium text-lg">{formatPounds(spend.amount_pence)}</p></div>
             <div><p className="text-muted-foreground">Paid To</p><p className="font-medium">{spend.paid_to}</p></div>
@@ -116,9 +116,9 @@ export function SpendDetailClient({ spend, canEdit, isAdmin }: Props) {
         </Card>
       )}
 
-      <Card>
+      <Card className="app-surface">
         <CardHeader><CardTitle className="text-base">Actions</CardTitle></CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
+        <CardContent className="app-toolbar">
           {spend.status === 'draft' && canEdit && (
             <Button onClick={() => handlePost(false)} disabled={isPending}>
               {isPending ? 'Posting…' : 'Post Spend'}
@@ -133,7 +133,7 @@ export function SpendDetailClient({ spend, canEdit, isAdmin }: Props) {
           {/* Receipt upload (always allowed) */}
           <div className="flex items-center gap-2">
             <Label htmlFor="receipt_upload" className="cursor-pointer">
-              <span className="inline-flex items-center gap-1 px-3 py-2 border rounded-md text-sm hover:bg-muted transition-colors">
+              <span className="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-sm transition-colors hover:bg-muted">
                 <Upload size={14} /> Upload Receipt
               </span>
             </Label>

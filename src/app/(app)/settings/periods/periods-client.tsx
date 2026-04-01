@@ -6,10 +6,20 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -84,7 +94,7 @@ export function PeriodsClient({ initialPeriods }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="app-toolbar justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>Create Period</Button>
@@ -96,45 +106,42 @@ export function PeriodsClient({ initialPeriods }: Props) {
             <div className="space-y-4 pt-2">
               <div className="flex flex-col gap-2">
                 <Label>Name</Label>
-                <input
+                <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Q1 2026"
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
                   <Label>Start Date</Label>
-                  <input
+                  <Input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                   />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>End Date</Label>
-                  <input
+                  <Input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <DialogFooter className="pt-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
                 <Button onClick={handleCreate} disabled={loading}>
                   {loading ? 'Creating...' : 'Create'}
                 </Button>
-              </div>
+              </DialogFooter>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      <Card>
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle className="text-base">Financial Periods</CardTitle>
         </CardHeader>
@@ -142,34 +149,34 @@ export function PeriodsClient({ initialPeriods }: Props) {
           {periods.length === 0 ? (
             <p className="text-muted-foreground text-sm">No financial periods defined. Create one to enable period locking.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4">Name</th>
-                    <th className="py-2 pr-4">Start</th>
-                    <th className="py-2 pr-4">End</th>
-                    <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="app-table-shell">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Start</TableHead>
+                    <TableHead>End</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {periods.map((p) => (
-                    <tr key={p.id} className="border-b">
-                      <td className="py-2 pr-4 font-medium">{p.name}</td>
-                      <td className="py-2 pr-4 font-mono text-xs">
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="font-mono text-xs text-slate-500">
                         {new Date(p.start_date).toLocaleDateString('en-GB')}
-                      </td>
-                      <td className="py-2 pr-4 font-mono text-xs">
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-slate-500">
                         {new Date(p.end_date).toLocaleDateString('en-GB')}
-                      </td>
-                      <td className="py-2 pr-4">
+                      </TableCell>
+                      <TableCell>
                         <Badge variant={statusVariant(p.status)}>
                           {PERIOD_STATUS_LABELS[p.status]}
                         </Badge>
-                      </td>
-                      <td className="py-2 text-right">
-                        <div className="flex gap-1 justify-end">
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
                           {p.status === 'open' && (
                             <>
                               <Button
@@ -226,11 +233,11 @@ export function PeriodsClient({ initialPeriods }: Props) {
                             </Button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

@@ -1,6 +1,6 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import { assertActiveOrgAccess, getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
@@ -15,6 +15,7 @@ export async function getSettings(orgId: string): Promise<{
   data: OrgSettings | null;
   error: string | null;
 }> {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   // Fetch org name
@@ -98,6 +99,7 @@ export async function updateOrgName(
   const { role } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'settings'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Permission denied' }; }
+  await assertActiveOrgAccess(orgId);
 
   if (!name.trim()) return { error: 'Organisation name is required' };
 
@@ -151,6 +153,7 @@ export async function updateOrgSettings(
   const { role } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'settings'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Permission denied' }; }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -168,6 +171,7 @@ export async function updateOrgSettings(
 export async function listMembers(
   orgId: string,
 ): Promise<{ data: MemberRow[]; error: string | null }> {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -208,6 +212,7 @@ export async function changeMemberRole(
   const { role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can change roles' }; }
+  await assertActiveOrgAccess(orgId);
 
   // Prevent changing own role
   if (user.id === userId) {
@@ -241,6 +246,7 @@ export async function removeMember(
   const { role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'delete', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can remove members' }; }
+  await assertActiveOrgAccess(orgId);
 
   if (user.id === userId) {
     return { error: 'Cannot remove yourself' };
@@ -278,6 +284,7 @@ export async function disableMember(
   const { role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can disable members' }; }
+  await assertActiveOrgAccess(orgId);
 
   if (user.id === userId) {
     return { error: 'Cannot disable yourself' };
@@ -315,6 +322,7 @@ export async function enableMember(
   const { role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can enable members' }; }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -517,6 +525,7 @@ export async function listBankAccounts(
   data: { id: string; name: string; account_number_last4: string | null; status: string }[];
   error: string | null;
 }> {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   let query = supabase
@@ -557,6 +566,7 @@ export async function setMemberExpiry(
   const { role } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can set member expiry' }; }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
   const { error } = await supabase

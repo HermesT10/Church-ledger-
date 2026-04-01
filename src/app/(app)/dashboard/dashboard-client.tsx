@@ -101,16 +101,16 @@ function PeriodSelector({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1">
+    <div className="app-filter-bar gap-1 p-1">
       {PERIODS.map((p) => (
         <button
           key={p.value}
           onClick={() => onChange(p.value)}
           disabled={disabled}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
             value === p.value
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
+              ? 'bg-primary text-primary-foreground shadow-[0_8px_20px_rgba(120,76,255,0.18)]'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           {p.label}
@@ -532,9 +532,12 @@ export function DashboardClient({ data: initialData, period: initialPeriod, canE
   return (
     <div className="space-y-6">
       {/* ---- Header ---- */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-border/80 bg-white/98 px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Overview
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight lg:text-[2rem]">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {data.periodLabel} &bull; {data.orgName}
           </p>

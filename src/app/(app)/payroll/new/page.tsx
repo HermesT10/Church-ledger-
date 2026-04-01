@@ -3,6 +3,8 @@ import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getSettings } from '@/app/(app)/settings/actions';
 import { listEmployees } from '@/lib/employees/actions';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { NewPayrollClient } from './new-payroll-client';
 
 export default async function NewPayrollPage() {
@@ -41,19 +43,16 @@ export default async function NewPayrollPage() {
   );
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold">New Payroll Run</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Enter payroll figures per employee, and optionally split expenses across funds.
-        </p>
-      </div>
-
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title="New Payroll Run"
+        subtitle="Capture payroll totals, allocate costs, and review the journal impact before posting."
+      />
       <NewPayrollClient
         funds={funds}
         employees={employees}
         accountsConfigured={accountsConfigured}
       />
-    </div>
+    </PageShell>
   );
 }

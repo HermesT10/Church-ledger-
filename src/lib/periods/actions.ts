@@ -158,7 +158,7 @@ export async function reopenPeriod(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Check if a date falls within a locked period                       */
+/*  Check if a date falls within a restricted period                   */
 /* ------------------------------------------------------------------ */
 
 export async function isDateInLockedPeriod(
@@ -171,10 +171,33 @@ export async function isDateInLockedPeriod(
     .from('financial_periods')
     .select('id')
     .eq('organisation_id', orgId)
-    .eq('status', 'locked')
+    .in('status', ['closed', 'locked'])
     .lte('start_date', journalDate)
     .gte('end_date', journalDate)
     .limit(1);
 
   return (data?.length ?? 0) > 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Resolve financial period for a date                               */
+/* ------------------------------------------------------------------ */
+
+export async function getFinancialPeriodIdForDate(
+  journalDate: string,
+): Promise<string | null> {
+  const { orgId } = await getActiveOrg();
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from('financial_periods')
+    .select('id')
+    .eq('organisation_id', orgId)
+    .lte('start_date', journalDate)
+    .gte('end_date', journalDate)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return data?.id ?? null;
 }

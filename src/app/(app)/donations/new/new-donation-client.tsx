@@ -69,7 +69,7 @@ export function NewDonationClient({ donors, funds }: Props) {
   }
 
   return (
-    <Card>
+    <Card className="app-surface max-w-3xl">
       <CardHeader>
         <CardTitle>Donation Details</CardTitle>
       </CardHeader>
@@ -125,7 +125,7 @@ export function NewDonationClient({ donors, funds }: Props) {
         </div>
 
         {/* Amount fields */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-1.5">
             <Label>Gross Amount (£)</Label>
             <Input
@@ -182,7 +182,7 @@ export function NewDonationClient({ donors, funds }: Props) {
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-4 border-t">
+        <div className="app-toolbar justify-end border-t border-border/70 pt-4">
           <Button variant="outline" asChild>
             <Link href="/donations">Cancel</Link>
           </Button>

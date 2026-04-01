@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { ReconciliationHistoryClient } from './history-client';
 
 export default async function ReconciliationHistoryPage() {
@@ -25,15 +27,12 @@ export default async function ReconciliationHistoryPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Reconciliation History</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          View past reconciliation sessions for each bank account.
-        </p>
-      </div>
-
+    <PageShell className="max-w-7xl">
+      <PageHeader
+        title="Reconciliation History"
+        subtitle="Review previous reconciliation sessions and reopen them when administrative corrections are needed."
+      />
       <ReconciliationHistoryClient bankAccounts={accounts} isAdmin={role === 'admin'} />
-    </div>
+    </PageShell>
   );
 }

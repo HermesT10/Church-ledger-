@@ -1,6 +1,6 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import { assertActiveOrgAccess, getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
@@ -50,6 +50,7 @@ function pickMonths(line: BudgetGridLine): Record<MonthKey, number> {
 /* ================================================================== */
 
 export async function listBudgets(orgId: string, year?: number) {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   let query = supabase
@@ -81,6 +82,7 @@ export async function createBudget(
 
   try { assertCanPerform(role, 'create', 'budgets'); }
   catch (e) { return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  await assertActiveOrgAccess(orgId);
 
   if (!Number.isInteger(year) || year < 2000 || year > 2100) {
     return { data: null, error: 'Year must be an integer between 2000 and 2100.' };

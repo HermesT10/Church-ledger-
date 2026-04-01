@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { listBankAccounts } from '@/lib/banking/bankAccounts';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { NewPaymentRunClient } from './new-payment-run-client';
 
 export default async function NewPaymentRunPage() {
@@ -27,19 +29,16 @@ export default async function NewPaymentRunPage() {
   ]);
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
+    <PageShell className="max-w-6xl">
       <div>
-        <Link
-          href="/payment-runs"
-          className="text-sm text-muted-foreground hover:underline"
-        >
+        <Link href="/payment-runs" className="text-sm text-muted-foreground hover:underline">
           &larr; Back to Payment Runs
         </Link>
-        <h1 className="text-2xl font-bold mt-2">New Payment Run</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Select posted bills to include in a batch payment.
-        </p>
       </div>
+      <PageHeader
+        title="New Payment Run"
+        subtitle="Build a batch payment from posted bills, then review and post when ready."
+      />
       <NewPaymentRunClient
         orgId={orgId}
         bills={
@@ -65,6 +64,6 @@ export default async function NewPaymentRunPage() {
           }))
         }
       />
-    </div>
+    </PageShell>
   );
 }

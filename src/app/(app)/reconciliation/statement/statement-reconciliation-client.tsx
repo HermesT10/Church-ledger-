@@ -256,34 +256,35 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Sub-navigation */}
-      <div className="flex gap-4 text-sm border-b">
+      <div className="app-tab-bar">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
         <Link
           href="/reconciliation"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Journal Matching
         </Link>
-        <span className="font-medium text-foreground border-b-2 border-primary pb-2">
+        <span className="app-tab-link-active">
           Statement Reconciliation
         </span>
         <Link
           href="/reconciliation/clearing"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Clearing Accounts
         </Link>
         <Link
           href="/reconciliation/history"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           History
         </Link>
+        </div>
       </div>
 
       {/* ---- SETUP SECTION ---- */}
       {!activeRec && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle>Statement Reconciliation Setup</CardTitle>
             <CardDescription>
@@ -293,7 +294,7 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
           <CardContent className="space-y-5">
             {/* Last reconciliation info */}
             {lastReconciliation && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-200">
+              <div className="rounded-[1.25rem] border border-blue-200/80 bg-blue-50/80 p-4 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
                 <p className="font-medium">Last Reconciliation</p>
                 <p className="mt-1">
                   Date: {formatDate(lastReconciliation.statement_date)} · Closing Balance:{' '}
@@ -370,69 +371,69 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
       {activeRec && summary && (
         <>
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 p-5 text-white shadow-lg ring-1 ring-white/20">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="app-surface p-5">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium opacity-80">Opening Balance</p>
-                <DollarSign className="h-5 w-5 opacity-60" />
+                <p className="text-sm font-medium text-slate-500">Opening Balance</p>
+                <DollarSign className="h-5 w-5 text-slate-400" />
               </div>
-              <p className="mt-2 text-2xl font-bold tracking-tight">
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-800">
                 {penceToPounds(summary.openingBalancePence)}
               </p>
             </div>
 
-            <div className="rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 p-5 text-white shadow-lg ring-1 ring-white/20">
+            <div className="app-surface border-blue-200/60 p-5">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium opacity-80">Cleared Total</p>
-                <CheckCircle2 className="h-5 w-5 opacity-60" />
+                <p className="text-sm font-medium text-slate-500">Cleared Total</p>
+                <CheckCircle2 className="h-5 w-5 text-blue-500" />
               </div>
-              <p className="mt-2 text-2xl font-bold tracking-tight">
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-800">
                 {penceToPounds(summary.openingBalancePence + summary.clearedTotalPence)}
               </p>
-              <p className="mt-1 text-xs opacity-70">
+              <p className="mt-1 text-xs text-slate-500">
                 {summary.clearedCount} of {summary.totalLines} lines
               </p>
             </div>
 
-            <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-5 text-white shadow-lg ring-1 ring-white/20">
+            <div className="app-surface border-emerald-200/60 p-5">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium opacity-80">Statement Balance</p>
-                <DollarSign className="h-5 w-5 opacity-60" />
+                <p className="text-sm font-medium text-slate-500">Statement Balance</p>
+                <DollarSign className="h-5 w-5 text-emerald-500" />
               </div>
-              <p className="mt-2 text-2xl font-bold tracking-tight">
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-800">
                 {penceToPounds(summary.statementBalancePence)}
               </p>
-              <p className="mt-1 text-xs opacity-70">
+              <p className="mt-1 text-xs text-slate-500">
                 {activeRec.statement_date}
               </p>
             </div>
 
             <div
-              className={`rounded-xl p-5 text-white shadow-lg ring-1 ring-white/20 ${
+              className={`app-surface p-5 ${
                 summary.isBalanced
-                  ? 'bg-gradient-to-br from-green-500 to-green-700'
-                  : 'bg-gradient-to-br from-red-500 to-red-700'
+                  ? 'border-emerald-200/70'
+                  : 'border-rose-200/70'
               }`}
             >
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium opacity-80">Difference</p>
+                <p className="text-sm font-medium text-slate-500">Difference</p>
                 {summary.isBalanced ? (
-                  <CheckCircle2 className="h-5 w-5 opacity-60" />
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                 ) : (
-                  <AlertCircle className="h-5 w-5 opacity-60" />
+                  <AlertCircle className="h-5 w-5 text-rose-500" />
                 )}
               </div>
-              <p className="mt-2 text-2xl font-bold tracking-tight">
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-800">
                 {penceToPounds(summary.differencePence)}
               </p>
-              <p className="mt-1 text-xs opacity-70">
+              <p className="mt-1 text-xs text-slate-500">
                 {summary.isBalanced ? 'Balanced — ready to finalize' : 'Must be £0.00 to finalize'}
               </p>
             </div>
           </div>
 
           {/* Controls */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="app-filter-bar justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -486,9 +487,9 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
           </div>
 
           {/* Bank lines table */}
-          <Card className="border shadow-sm rounded-2xl">
+          <Card className="app-surface">
             <CardContent className="pt-4">
-              <div className="overflow-x-auto">
+              <div className="app-table-shell">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -515,8 +516,8 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
                           key={line.id}
                           className={`cursor-pointer transition-colors ${
                             line.cleared
-                              ? 'bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-950/40'
-                              : 'hover:bg-muted/50'
+                              ? 'bg-emerald-50/85 hover:bg-emerald-100/70 dark:bg-green-950/20 dark:hover:bg-green-950/40'
+                              : 'hover:bg-slate-50/85'
                           }`}
                           onClick={() => handleToggleClear(line.id, line.cleared)}
                         >
@@ -540,7 +541,7 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
                           </TableCell>
                           <TableCell
                             className={`text-right font-mono text-sm ${
-                              line.amount_pence >= 0 ? 'text-green-600' : 'text-red-600'
+                              line.amount_pence >= 0 ? 'app-table-amount-positive' : 'app-table-amount-negative'
                             }`}
                           >
                             {penceToPounds(line.amount_pence)}
@@ -565,7 +566,7 @@ export function StatementReconciliationClient({ bankAccounts }: Props) {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t pt-4 mt-4">
+                <div className="mt-4 flex items-center justify-between border-t border-slate-200/80 pt-4">
                   <p className="text-sm text-muted-foreground">
                     Showing {currentPage * PAGE_SIZE + 1}–
                     {Math.min((currentPage + 1) * PAGE_SIZE, filteredLines.length)} of{' '}

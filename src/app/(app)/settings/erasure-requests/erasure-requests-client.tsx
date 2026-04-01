@@ -108,7 +108,7 @@ export function ErasureRequestsClient({ requests: initialRequests }: Props) {
         </Link>
       </div>
 
-      <Card className="rounded-2xl shadow-sm">
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle>Requests</CardTitle>
           <CardDescription>
@@ -116,7 +116,7 @@ export function ErasureRequestsClient({ requests: initialRequests }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border overflow-x-auto">
+          <div className="app-table-shell">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -140,7 +140,7 @@ export function ErasureRequestsClient({ requests: initialRequests }: Props) {
                     <TableRow key={r.id}>
                       <TableCell>
                         <span className="font-medium">{r.requester_name ?? 'Unknown'}</span>
-                        <span className="text-xs text-muted-foreground block">
+                        <span className="app-table-meta">
                           {r.requester_user_id.slice(0, 8)}...
                         </span>
                       </TableCell>
@@ -163,14 +163,14 @@ export function ErasureRequestsClient({ requests: initialRequests }: Props) {
                           {STATUS_LABELS[r.status] ?? r.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="text-sm text-slate-500">
                         {new Date(r.created_at).toLocaleDateString('en-GB', {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric',
                         })}
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                      <TableCell className="max-w-[200px] truncate text-sm text-slate-500">
                         {r.reason || '—'}
                       </TableCell>
                       <TableCell className="text-right">

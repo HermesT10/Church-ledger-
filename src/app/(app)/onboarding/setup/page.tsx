@@ -61,7 +61,7 @@ export default async function OnboardingSetupPage() {
     .eq('year', currentYear);
 
   return (
-    <div className="flex min-h-screen items-start justify-center px-4 py-12">
+    <div className="flex min-h-screen items-start justify-center bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_32%),linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.96))] px-4 py-12">
       <SetupWizard
         orgId={orgId}
         orgName={org?.name ?? ''}

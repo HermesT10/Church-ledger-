@@ -1,6 +1,7 @@
 'use server';
 
 import { requireSession } from '@/lib/auth';
+import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { assertWriteAllowed } from '@/lib/demo';
 import type { ProfileData, UserPreferences } from './types';
@@ -14,6 +15,7 @@ export async function getProfile(): Promise<{
   error: string | null;
 }> {
   const user = await requireSession();
+  const activeOrg = await getActiveOrg();
   const supabase = await createClient();
 
   // Fetch profile
@@ -24,24 +26,6 @@ export async function getProfile(): Promise<{
     .single();
 
   if (profileErr) return { data: null, error: profileErr.message };
-
-  // Fetch membership + org name
-  const { data: membership, error: memberErr } = await supabase
-    .from('memberships')
-    .select('role, organisations(name)')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single();
-
-  if (memberErr) return { data: null, error: memberErr.message };
-
-  // Supabase may return organisations as array or object depending on join
-  const orgs = membership.organisations as
-    | { name: string }
-    | { name: string }[]
-    | null;
-  const org = Array.isArray(orgs) ? orgs[0] ?? null : orgs;
 
   // Auth provider
   const provider =
@@ -56,8 +40,8 @@ export async function getProfile(): Promise<{
       fullName: profile.full_name,
       avatarUrl: profile.avatar_url,
       email: user.email ?? null,
-      role: membership.role as string,
-      organisationName: org?.name ?? 'Unknown',
+      role: activeOrg.role,
+      organisationName: activeOrg.orgName,
       lastSignInAt: user.last_sign_in_at ?? null,
       authProvider: provider ?? 'email',
       preferences: {

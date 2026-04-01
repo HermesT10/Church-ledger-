@@ -55,14 +55,14 @@ export function RecurringClient({ recurring, canEdit }: Props) {
         <Link href="/donations"><ArrowLeft size={14} className="mr-1" /> Back to Donations</Link>
       </Button>
 
-      <Card>
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle className="text-base">All Recurring Commitments</CardTitle>
           <CardDescription>{recurring.length} total</CardDescription>
         </CardHeader>
         <CardContent>
           {recurring.length > 0 ? (
-            <div className="rounded-md border overflow-x-auto">
+            <div className="app-table-shell">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -81,7 +81,7 @@ export function RecurringClient({ recurring, canEdit }: Props) {
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">{r.donor_name}</TableCell>
                       <TableCell>{r.fund_name ?? '—'}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatPounds(r.amount_pence)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm app-table-amount-positive">{formatPounds(r.amount_pence)}</TableCell>
                       <TableCell>{FREQUENCY_LABELS[r.frequency as RecurringFrequency]}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
@@ -137,7 +137,7 @@ export function RecurringClient({ recurring, canEdit }: Props) {
               </Table>
             </div>
           ) : (
-            <div className="text-center py-8">
+            <div className="app-empty-state py-8">
               <Repeat className="mx-auto h-10 w-10 text-muted-foreground/50" />
               <p className="mt-3 text-sm text-muted-foreground">
                 No recurring donations configured yet.

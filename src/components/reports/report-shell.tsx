@@ -23,24 +23,28 @@ export function ReportShell({
   error,
 }: ReportShellProps) {
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
+      <div className="rounded-[1.75rem] border border-border/80 bg-white/98 px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+          Report
+        </p>
+        <h1 className="mt-2 text-[2rem] font-semibold tracking-tight text-slate-800">
           {title}
           {asOfDate && (
-            <span className="text-base font-normal text-muted-foreground ml-1">
+            <span className="ml-1 text-base font-normal text-slate-500">
               as of {asOfDate}
             </span>
           )}
         </h1>
         {description && (
-          <p className="text-muted-foreground text-sm mt-1">{description}</p>
+          <p className="mt-1 text-[15px] text-slate-500">{description}</p>
         )}
       </div>
 
       {/* Sub-nav tabs */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm border-b pb-2">
+      <div className="app-filter-bar">
+      <div className="flex flex-wrap gap-2 text-sm">
         {REPORT_TABS.map((tab) => {
           const isActive = activeReport === tab.href;
           return (
@@ -49,8 +53,8 @@ export function ReportShell({
               href={tab.href}
               className={
                 isActive
-                  ? 'font-semibold text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:underline'
+                  ? 'rounded-xl bg-primary px-3 py-2 font-semibold text-primary-foreground shadow-[0_8px_20px_rgba(120,76,255,0.18)]'
+                  : 'rounded-xl px-3 py-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900'
               }
             >
               {tab.label}
@@ -58,13 +62,16 @@ export function ReportShell({
           );
         })}
       </div>
+      </div>
 
       {/* Action button */}
-      {action && <div>{action}</div>}
+      {action && <div className="app-toolbar">{action}</div>}
 
       {/* Error */}
       {error && (
-        <p className="text-sm text-destructive">{error}</p>
+        <p className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
       )}
 
       {/* Content */}

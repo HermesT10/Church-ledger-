@@ -1,8 +1,10 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/auth';
+import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { isDemoMode } from '@/lib/demo';
+import { PermissionError } from '@/lib/permissions';
 import { CollapsibleLayout } from '@/components/collapsible-layout';
 
 export default async function AppLayout({
@@ -10,34 +12,42 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await requireSession();
   const demo = await isDemoMode();
+  const headersList = await headers();
+  const pathname = headersList.get('x-pathname') ?? '';
 
   // In demo mode, skip all DB queries for membership/onboarding/profile
   if (demo) {
     return (
-      <CollapsibleLayout userName="Demo User" orgName="Demo Organisation" role="admin">
+      <CollapsibleLayout
+        userName="Demo User"
+        orgId="demo-org"
+        orgName="Demo Organisation"
+        availableOrgs={[
+          { orgId: 'demo-org', orgName: 'Demo Organisation', role: 'admin' },
+        ]}
+        role="admin"
+      >
         {children}
       </CollapsibleLayout>
     );
   }
 
-  // Check if the user has any active memberships (also fetch org name + role)
+  const user = await requireSession();
   const supabase = await createClient();
-  const { data: membershipData, count } = await supabase
-    .from('memberships')
-    .select('organisation_id, role, status, organisations(name)', { count: 'exact', head: false })
-    .eq('user_id', user.id)
-    .eq('status', 'active')
-    .order('created_at', { ascending: true })
-    .limit(1);
+  let activeOrg:
+    | Awaited<ReturnType<typeof getActiveOrg>>
+    | null = null;
 
-  // If no active memberships, check for disabled → redirect with error
-  const headersList = await headers();
-  const pathname = headersList.get('x-pathname') ?? '';
+  try {
+    activeOrg = await getActiveOrg({ allowMissingMembership: true });
+  } catch (error) {
+    if (!(error instanceof PermissionError)) {
+      throw error;
+    }
+  }
 
-  if (count === 0 && !pathname.startsWith('/onboarding') && !pathname.startsWith('/accept-invite')) {
-    // Check if user has a disabled membership
+  if (!activeOrg) {
     const { data: disabledMembership } = await supabase
       .from('memberships')
       .select('id')
@@ -50,31 +60,26 @@ export default async function AppLayout({
       redirect('/login?error=' + encodeURIComponent('Your account has been disabled. Contact your administrator.'));
     }
 
-    redirect('/onboarding');
+    if (!pathname.startsWith('/onboarding') && !pathname.startsWith('/accept-invite')) {
+      redirect('/onboarding');
+    }
+
+    return children;
   }
 
-  // Extract organisation name from the membership join
-  const orgs = membershipData?.[0]?.organisations as
-    | { name: string }
-    | { name: string }[]
-    | null
-    | undefined;
-  const organisationName =
-    (Array.isArray(orgs) ? orgs[0]?.name : orgs?.name) ?? 'ChurchLedger';
+  const { orgId, orgName, role, availableOrgs } = activeOrg;
 
   // Onboarding redirect: if the org's onboarding is not completed and the user
   // is an admin or treasurer, redirect them to the setup wizard.
   // Trustees and auditors can use the app without completing onboarding.
-  const membership = membershipData?.[0];
   if (
-    membership &&
     !pathname.startsWith('/onboarding') &&
-    (membership.role === 'admin' || membership.role === 'treasurer')
+    (role === 'admin' || role === 'treasurer')
   ) {
     const { data: onboardingRow, error: onboardingErr } = await supabase
       .from('onboarding_progress')
       .select('is_completed')
-      .eq('organisation_id', membership.organisation_id)
+      .eq('organisation_id', orgId)
       .single();
 
     // Only redirect if we successfully fetched an incomplete onboarding row.
@@ -93,10 +98,14 @@ export default async function AppLayout({
 
   const userName = profile?.full_name ?? user.email ?? 'User';
 
-  const userRole = (membership?.role as string) ?? 'viewer';
-
   return (
-    <CollapsibleLayout userName={userName} orgName={organisationName} role={userRole}>
+    <CollapsibleLayout
+      userName={userName}
+      orgId={orgId}
+      orgName={orgName}
+      availableOrgs={availableOrgs}
+      role={role}
+    >
       {children}
     </CollapsibleLayout>
   );

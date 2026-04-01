@@ -4,6 +4,8 @@ import { getActiveOrg } from '@/lib/org';
 import { getDonation } from '@/lib/donations/actions';
 import { CHANNEL_LABELS } from '@/lib/donations/types';
 import type { DonationChannel } from '@/lib/donations/types';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,24 +22,27 @@ export default async function DonationDetailPage(props: { params: Promise<{ id: 
   if (error || !donation) notFound();
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <Button asChild variant="ghost" size="icon">
-          <Link href="/donations"><ArrowLeft size={16} /></Link>
+    <PageShell className="max-w-4xl">
+      <div>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/donations">
+            <ArrowLeft size={16} className="mr-1" />
+            Back to Donations
+          </Link>
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Donation Details</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{formatDate(donation.donation_date)}</p>
-        </div>
       </div>
+      <PageHeader
+        title="Donation Details"
+        subtitle={`Recorded ${formatDate(donation.donation_date)}`}
+      />
 
       {/* Summary */}
-      <Card>
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle>Summary</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="grid grid-cols-2 gap-4">
+        <CardContent className="space-y-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <p className="text-muted-foreground">Donor</p>
               <p className="font-medium">{donation.donor_name ?? 'Anonymous'}</p>
@@ -60,7 +65,7 @@ export default async function DonationDetailPage(props: { params: Promise<{ id: 
             </div>
           </div>
 
-          <div className="border-t pt-3 grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 border-t border-border/70 pt-4 md:grid-cols-3">
             <div>
               <p className="text-muted-foreground">Gross</p>
               <p className="text-lg font-bold">{formatPounds(donation.gross_amount_pence)}</p>
@@ -78,7 +83,7 @@ export default async function DonationDetailPage(props: { params: Promise<{ id: 
           </div>
 
           {/* Metadata */}
-          <div className="border-t pt-3 grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 border-t border-border/70 pt-4 md:grid-cols-2">
             {donation.provider_reference && (
               <div>
                 <p className="text-muted-foreground">Provider Reference</p>
@@ -116,7 +121,7 @@ export default async function DonationDetailPage(props: { params: Promise<{ id: 
       </Card>
 
       {/* Actions */}
-      <div className="flex gap-3">
+      <div className="app-toolbar">
         {donation.journal_id && (
           <Button asChild variant="outline" size="sm">
             <Link href={`/journals/${donation.journal_id}`}>
@@ -128,6 +133,6 @@ export default async function DonationDetailPage(props: { params: Promise<{ id: 
           <Link href="/donations">Back to Donations</Link>
         </Button>
       </div>
-    </div>
+    </PageShell>
   );
 }

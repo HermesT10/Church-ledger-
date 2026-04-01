@@ -44,16 +44,26 @@ export function StatCard({
     return (
       <Link href={href} className="block group">
         <div
-          className={`rounded-2xl p-5 border shadow-sm transition-all hover:shadow-md ${t.bg} ${t.border} dark:bg-opacity-10`}
+          className={`rounded-[1.5rem] border bg-white/98 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:border-slate-300 hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)] ${t.border}`}
         >
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground">{title}</p>
-            <span className={`${t.icon} opacity-70`} aria-hidden="true">{icon}</span>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                {title}
+              </p>
+              <p className="mt-3 text-[2.35rem] font-semibold tracking-tight text-slate-800">{value}</p>
+              {subtitle && (
+                <p className="mt-2 text-[13px] text-slate-500">{subtitle}</p>
+              )}
+            </div>
+            <span
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${t.bg} ${t.icon} shadow-inner`}
+              aria-hidden="true"
+            >
+              {icon}
+            </span>
           </div>
-          <p className="mt-2 text-3xl font-bold tracking-tight">{value}</p>
-          {subtitle && (
-            <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-          )}
+          <div className={`mt-4 h-1 rounded-full opacity-80 ${t.bg}`} />
         </div>
       </Link>
     );

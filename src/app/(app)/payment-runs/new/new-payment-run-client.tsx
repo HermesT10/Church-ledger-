@@ -70,7 +70,6 @@ export function NewPaymentRunClient({ orgId, bills, bankAccounts }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bankAccountId, setBankAccountId] = useState('');
 
   const allSelected = bills.length > 0 && selected.size === bills.length;
 
@@ -127,7 +126,7 @@ export function NewPaymentRunClient({ orgId, bills, bankAccounts }: Props) {
 
   if (bills.length === 0) {
     return (
-      <Card>
+      <Card className="app-empty-state">
         <CardContent className="py-12 text-center">
           <Banknote className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
@@ -139,7 +138,7 @@ export function NewPaymentRunClient({ orgId, bills, bankAccounts }: Props) {
   }
 
   return (
-    <Card>
+    <Card className="app-surface">
       <CardHeader>
         <CardTitle>Select Bills for Payment</CardTitle>
         <CardDescription>
@@ -195,7 +194,7 @@ export function NewPaymentRunClient({ orgId, bills, bankAccounts }: Props) {
         </div>
 
         {/* Summary + action */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 border-t pt-4">
+        <div className="app-toolbar items-start justify-between border-t border-border/70 pt-4 sm:items-end">
           <div>
             <p className="text-sm text-muted-foreground">
               {selectedCount} bill{selectedCount !== 1 ? 's' : ''} selected

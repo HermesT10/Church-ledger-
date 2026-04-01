@@ -1,6 +1,6 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import { assertActiveOrgAccess, getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
@@ -72,6 +72,7 @@ const SEED_ACCOUNTS: {
 export async function getOnboardingProgress(
   orgId: string,
 ): Promise<OnboardingProgress> {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   const { data } = await supabase
@@ -130,6 +131,7 @@ export async function saveOnboardingStep(
   } catch (e) {
     return { error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 
@@ -177,6 +179,7 @@ export async function skipOnboardingStep(
   } catch (e) {
     return { error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 
@@ -214,6 +217,7 @@ export async function completeOnboarding(
   } catch (e) {
     return { error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 
@@ -244,6 +248,7 @@ export async function updateOrgProfile(
   } catch (e) {
     return { error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
+  await assertActiveOrgAccess(orgId);
 
   const trimmed = name.trim();
   if (!trimmed) {
@@ -275,6 +280,7 @@ export async function seedFundsForOnboarding(
   } catch (e) {
     return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.', count: 0 };
   }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 
@@ -313,6 +319,7 @@ export async function createFundForOnboarding(
   } catch (e) {
     return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
+  await assertActiveOrgAccess(orgId);
 
   if (!name.trim() || !type) {
     return { success: false, error: 'Name and type are required.' };
@@ -348,6 +355,7 @@ export async function seedAccountsForOnboarding(
   } catch (e) {
     return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.', count: 0 };
   }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 

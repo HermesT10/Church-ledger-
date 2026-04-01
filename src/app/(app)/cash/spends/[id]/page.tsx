@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { SpendDetailClient } from './spend-detail-client';
 
 export default async function SpendDetailPage({
@@ -28,22 +30,28 @@ export default async function SpendDetailPage({
   const account = spend.accounts as unknown as { name: string } | null;
 
   return (
-    <SpendDetailClient
-      spend={{
-        id: spend.id,
-        spend_date: spend.spend_date,
-        paid_to: spend.paid_to,
-        spent_by: spend.spent_by,
-        description: spend.description,
-        receipt_url: spend.receipt_url,
-        fund_name: fund?.name ?? 'Unknown',
-        expense_account_name: account?.name ?? 'Unknown',
-        amount_pence: Number(spend.amount_pence),
-        status: spend.status as 'draft' | 'posted',
-        posted_transaction_id: spend.posted_transaction_id,
-      }}
-      canEdit={canEdit}
-      isAdmin={isAdmin}
-    />
+    <PageShell className="max-w-4xl">
+      <PageHeader
+        title="Cash Spend"
+        subtitle="Review petty cash details, upload receipts, and post the journal when ready."
+      />
+      <SpendDetailClient
+        spend={{
+          id: spend.id,
+          spend_date: spend.spend_date,
+          paid_to: spend.paid_to,
+          spent_by: spend.spent_by,
+          description: spend.description,
+          receipt_url: spend.receipt_url,
+          fund_name: fund?.name ?? 'Unknown',
+          expense_account_name: account?.name ?? 'Unknown',
+          amount_pence: Number(spend.amount_pence),
+          status: spend.status as 'draft' | 'posted',
+          posted_transaction_id: spend.posted_transaction_id,
+        }}
+        canEdit={canEdit}
+        isAdmin={isAdmin}
+      />
+    </PageShell>
   );
 }

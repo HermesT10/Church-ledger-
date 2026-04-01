@@ -1,5 +1,7 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { NewCollectionClient } from './new-collection-client';
 
 export default async function NewCollectionPage() {
@@ -13,11 +15,17 @@ export default async function NewCollectionPage() {
   ]);
 
   return (
-    <NewCollectionClient
-      orgId={orgId}
-      funds={(fundsRes.data ?? []) as { id: string; name: string }[]}
-      incomeAccounts={(accountsRes.data ?? []) as { id: string; code: string; name: string }[]}
-      donors={(donorsRes.data ?? []) as { id: string; full_name: string }[]}
-    />
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title="New Cash Collection"
+        subtitle="Record a counted offering or event collection with dual verification and detailed line coding."
+      />
+      <NewCollectionClient
+        orgId={orgId}
+        funds={(fundsRes.data ?? []) as { id: string; name: string }[]}
+        incomeAccounts={(accountsRes.data ?? []) as { id: string; code: string; name: string }[]}
+        donors={(donorsRes.data ?? []) as { id: string; full_name: string }[]}
+      />
+    </PageShell>
   );
 }

@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { createFund } from '@/lib/funds/actions';
 import { FUND_TYPES, FUND_TYPE_LABELS } from '@/lib/funds/types';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -22,17 +24,17 @@ function NewFundForm() {
   const error = searchParams.get('error');
 
   return (
-    <div className="p-6 max-w-lg space-y-6">
+    <PageShell className="max-w-4xl">
       <div>
         <Link href="/funds" className="text-sm text-muted-foreground hover:underline">
           &larr; Back to Funds
         </Link>
-        <h1 className="text-2xl font-bold mt-2">New Fund</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Create a new charity fund for your organisation.
-        </p>
       </div>
-      <Card>
+      <PageHeader
+        title="New Fund"
+        subtitle="Create a restricted, unrestricted, or designated fund for reporting and stewardship."
+      />
+      <Card className="app-surface max-w-2xl">
         <CardHeader>
           <CardTitle>Fund Details</CardTitle>
           <CardDescription>
@@ -104,7 +106,7 @@ function NewFundForm() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </PageShell>
   );
 }
 

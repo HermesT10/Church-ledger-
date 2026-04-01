@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const SELECT_CLASS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 interface Props {
   funds: { id: string; name: string }[];
@@ -55,14 +55,14 @@ export function NewSpendClient({ funds, expenseAccounts }: Props) {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <Card>
+    <div className="max-w-3xl space-y-6">
+      <Card className="app-surface">
         <CardHeader>
-          <CardTitle>New Cash Spend</CardTitle>
-          <CardDescription>Record a petty cash expenditure.</CardDescription>
+          <CardTitle>Spend Details</CardTitle>
+          <CardDescription>Record the expenditure, who handled it, and how it should be coded.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Spend Date *</Label>
               <Input type="date" value={spendDate} onChange={(e) => setSpendDate(e.target.value)} />
@@ -73,7 +73,7 @@ export function NewSpendClient({ funds, expenseAccounts }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Paid To *</Label>
               <Input placeholder="Who received the cash" value={paidTo} onChange={(e) => setPaidTo(e.target.value)} />
@@ -89,7 +89,7 @@ export function NewSpendClient({ funds, expenseAccounts }: Props) {
             <Input placeholder="What was it spent on" value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Fund *</Label>
               <select className={SELECT_CLASS} value={fundId} onChange={(e) => setFundId(e.target.value)}>
@@ -106,7 +106,7 @@ export function NewSpendClient({ funds, expenseAccounts }: Props) {
         </CardContent>
       </Card>
 
-      <div className="flex gap-3">
+      <div className="app-toolbar">
         <Button onClick={handleSave} disabled={isPending}>
           {isPending ? 'Saving…' : 'Save Spend'}
         </Button>

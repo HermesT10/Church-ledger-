@@ -94,7 +94,7 @@ export function AuditLogClient({
   };
 
   return (
-    <Card className="rounded-2xl shadow-sm">
+    <Card className="app-surface">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -115,7 +115,7 @@ export function AuditLogClient({
           </div>
         ) : (
           <>
-            <div className="rounded-md border overflow-x-auto">
+            <div className="app-table-shell">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -131,7 +131,7 @@ export function AuditLogClient({
                   {entries.map((entry) => (
                     <>
                       <TableRow key={entry.id}>
-                        <TableCell className="text-xs whitespace-nowrap">
+                        <TableCell className="text-xs whitespace-nowrap text-slate-500">
                           {formatDate(entry.createdAt)}
                         </TableCell>
                         <TableCell className="text-sm">
@@ -142,7 +142,7 @@ export function AuditLogClient({
                             {ACTION_LABELS[entry.action] ?? entry.action}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
+                        <TableCell className="text-xs text-slate-500">
                           {entry.entityType && (
                             <span>
                               {entry.entityType}
@@ -181,8 +181,8 @@ export function AuditLogClient({
                       </TableRow>
                       {expandedRow === entry.id && (
                         <TableRow key={`${entry.id}-meta`}>
-                          <TableCell colSpan={6} className="bg-muted/30">
-                            <pre className="text-xs font-mono whitespace-pre-wrap p-2">
+                          <TableCell colSpan={6} className="bg-slate-50/90 px-4 py-3">
+                            <pre className="text-xs font-mono whitespace-pre-wrap text-slate-600">
                               {JSON.stringify(entry.metadata, null, 2)}
                             </pre>
                           </TableCell>
@@ -196,7 +196,7 @@ export function AuditLogClient({
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4">
+              <div className="app-toolbar mt-4 justify-between">
                 <p className="text-xs text-muted-foreground">
                   Page {page} of {totalPages}
                 </p>

@@ -1,5 +1,7 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { NewSpendClient } from './new-spend-client';
 
 export default async function NewSpendPage() {
@@ -12,9 +14,15 @@ export default async function NewSpendPage() {
   ]);
 
   return (
-    <NewSpendClient
-      funds={(fundsRes.data ?? []) as { id: string; name: string }[]}
-      expenseAccounts={(expenseAccountsRes.data ?? []) as { id: string; code: string; name: string }[]}
-    />
+    <PageShell className="max-w-4xl">
+      <PageHeader
+        title="New Cash Spend"
+        subtitle="Capture petty cash outflows with the correct fund, expense account, and receipt workflow."
+      />
+      <NewSpendClient
+        funds={(fundsRes.data ?? []) as { id: string; name: string }[]}
+        expenseAccounts={(expenseAccountsRes.data ?? []) as { id: string; code: string; name: string }[]}
+      />
+    </PageShell>
   );
 }

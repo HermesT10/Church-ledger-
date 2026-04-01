@@ -183,35 +183,35 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
   return (
     <div className="space-y-8">
-      {/* Sub-navigation */}
-      <div className="flex gap-4 text-sm border-b">
-        <span className="font-medium text-foreground border-b-2 border-primary pb-2">
+      <div className="app-tab-bar">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="app-tab-link-active">
           Journal Matching
-        </span>
+          </span>
         <Link
           href="/reconciliation/statement"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Statement Reconciliation
         </Link>
         <Link
           href="/reconciliation/clearing"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Clearing Accounts
         </Link>
         <Link
           href="/reconciliation/history"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           History
         </Link>
+        </div>
       </div>
 
-      {/* Bank account selector */}
-      <Card className="border shadow-sm rounded-2xl">
+      <Card className="app-surface">
         <CardContent className="py-4">
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="app-filter-bar">
             <label htmlFor="bankSelect" className="text-sm font-medium">
               Bank Account
             </label>
@@ -239,13 +239,13 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             title="Total Lines"
             value={stats.totalLines}
             subtitle="In selected account"
             href="/reconciliation"
-            gradient="bg-gradient-to-br from-slate-500 to-slate-700"
+            tint="slate"
             icon={<ArrowLeftRight size={20} />}
           />
           <StatCard
@@ -253,7 +253,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
             value={stats.reconciledCount}
             subtitle="Matched to journals"
             href="/reconciliation"
-            gradient="bg-gradient-to-br from-emerald-500 to-emerald-700"
+            tint="emerald"
             icon={<CheckCircle2 size={20} />}
           />
           <StatCard
@@ -261,7 +261,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
             value={stats.unreconciledCount}
             subtitle="Needs matching"
             href="/reconciliation"
-            gradient="bg-gradient-to-br from-amber-500 to-amber-700"
+            tint="amber"
             icon={<AlertCircle size={20} />}
           />
           <StatCard
@@ -269,7 +269,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
             value={`£${penceToPounds(stats.unreconciledAmountPence)}`}
             subtitle="Absolute value"
             href="/reconciliation"
-            gradient="bg-gradient-to-br from-violet-500 to-violet-700"
+            tint="violet"
             icon={<Search size={20} />}
           />
         </div>
@@ -277,7 +277,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* Empty state */}
       {loaded && bankAccounts.length === 0 && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-empty-state">
           <CardContent className="py-12 text-center space-y-3">
             <ArrowLeftRight className="mx-auto h-10 w-10 text-muted-foreground/40" />
             <p className="text-muted-foreground">No bank accounts found.</p>
@@ -293,7 +293,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* Unreconciled bank lines */}
       {loaded && unreconciledLines.length > 0 && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle>
               Unreconciled Lines ({unreconciledLines.length})
@@ -304,7 +304,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="app-table-shell">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -331,8 +331,8 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                         <TableCell
                           className={`text-right font-mono ${
                             bl.amount_pence >= 0
-                              ? 'text-green-600'
-                              : 'text-red-600'
+                              ? 'app-table-amount-positive'
+                              : 'app-table-amount-negative'
                           }`}
                         >
                           {bl.amount_pence >= 0 ? '+' : ''}
@@ -342,6 +342,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="min-w-[108px] justify-center"
                             onClick={() => handleSuggest(bl.id)}
                           >
                             {expandedLineId === bl.id ? (
@@ -361,7 +362,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                       {/* Suggestions inline */}
                       {expandedLineId === bl.id && (
                         <TableRow key={`${bl.id}-suggestions`}>
-                          <TableCell colSpan={5} className="bg-muted/30 px-6 py-4">
+                          <TableCell colSpan={5} className="bg-slate-50/90 px-6 py-4">
                             {suggestionsLoading ? (
                               <p className="text-sm text-muted-foreground">
                                 Searching for matches...
@@ -378,7 +379,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                                 {suggestions.map((cand) => (
                                   <div
                                     key={cand.journalId}
-                                    className="flex items-center justify-between rounded-lg border bg-background p-3 gap-4"
+                                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-200/80 bg-white p-3"
                                   >
                                     <div className="flex-1 min-w-0 space-y-1">
                                       <div className="flex items-center gap-2">
@@ -398,10 +399,10 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                                           </Badge>
                                         )}
                                       </div>
-                                      <p className="text-sm truncate">
+                                      <p className="text-sm font-medium truncate text-slate-700">
                                         {cand.memo || '(no memo)'}
                                       </p>
-                                      <p className="text-xs text-muted-foreground">
+                                      <p className="text-xs leading-5 text-slate-500">
                                         {formatDate(cand.journalDate)} · £
                                         {penceToPounds(cand.amountPence)}
                                         {cand.reasons.length > 0 && (
@@ -435,7 +436,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* No unreconciled lines */}
       {loaded && unreconciledLines.length === 0 && bankAccounts.length > 0 && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-empty-state">
           <CardContent className="py-12 text-center space-y-3">
             <CheckCircle2 className="mx-auto h-10 w-10 text-green-500/60" />
             <p className="text-muted-foreground">
@@ -447,7 +448,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* Reconciled lines (collapsible) */}
       {loaded && reconciledLines.length > 0 && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>
@@ -464,7 +465,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
           </CardHeader>
           {showReconciled && (
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="app-table-shell">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -488,8 +489,8 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                         <TableCell
                           className={`text-right font-mono ${
                             bl.amount_pence >= 0
-                              ? 'text-green-600'
-                              : 'text-red-600'
+                              ? 'app-table-amount-positive'
+                              : 'app-table-amount-negative'
                           }`}
                         >
                           £{penceToPounds(bl.amount_pence)}
@@ -497,7 +498,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                         <TableCell className="max-w-[250px] truncate text-sm">
                           <Link
                             href={`/journals/${bl.journal_id}`}
-                            className="text-blue-600 hover:underline"
+                            className="font-medium text-primary underline-offset-4 hover:underline"
                           >
                             {bl.journal_memo
                               ? bl.journal_memo.slice(0, 50)

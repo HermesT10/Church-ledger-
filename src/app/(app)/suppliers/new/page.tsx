@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { SupplierEditForm } from '../supplier-edit-form';
 
 export default async function NewSupplierPage() {
@@ -31,19 +33,16 @@ export default async function NewSupplierPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
+    <PageShell className="max-w-4xl">
       <div>
-        <Link
-          href="/suppliers"
-          className="text-sm text-muted-foreground hover:underline"
-        >
+        <Link href="/suppliers" className="text-sm text-muted-foreground hover:underline">
           &larr; Back to Suppliers
         </Link>
-        <h1 className="text-2xl font-bold mt-2">New Supplier</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Add a new supplier to your directory.
-        </p>
       </div>
+      <PageHeader
+        title="New Supplier"
+        subtitle="Add a new supplier to your directory and set default coding for future bills."
+      />
       <Suspense>
         <SupplierEditForm
           accounts={accounts ?? []}
@@ -51,6 +50,6 @@ export default async function NewSupplierPage() {
           mode="create"
         />
       </Suspense>
-    </div>
+    </PageShell>
   );
 }

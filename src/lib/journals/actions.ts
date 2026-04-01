@@ -10,7 +10,7 @@ import type { JournalLine } from '@/lib/journals/reversal';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
 import { assertWriteAllowed } from '@/lib/demo';
-import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import { getFinancialPeriodIdForDate, isDateInLockedPeriod } from '@/lib/periods/actions';
 import type { JournalRow, JournalWithTotals } from './types';
 
 /* ------------------------------------------------------------------ */
@@ -181,7 +181,7 @@ export async function getJournalsWithTotals(options?: {
 
 export async function createJournal(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const journalDate = formData.get('journal_date') as string;
   const reference = (formData.get('reference') as string)?.trim() || null;
   const memo = (formData.get('memo') as string)?.trim() || null;
@@ -189,6 +189,17 @@ export async function createJournal(formData: FormData) {
 
   if (!journalDate) {
     redirect('/journals/new?error=' + encodeURIComponent('Date is required.'));
+  }
+
+  try {
+    assertCanPerform(role, 'create', 'journals');
+  } catch (e) {
+    redirect(
+      '/journals/new?error=' +
+        encodeURIComponent(
+          e instanceof PermissionError ? e.message : 'Permission denied.',
+        ),
+    );
   }
 
   // Period lock check
@@ -207,6 +218,7 @@ export async function createJournal(formData: FormData) {
   validateLines(lines, '/journals/new');
 
   const supabase = await createClient();
+  const periodId = await getFinancialPeriodIdForDate(journalDate);
 
   const { data: journal, error: journalErr } = await supabase
     .from('journals')
@@ -215,6 +227,7 @@ export async function createJournal(formData: FormData) {
       journal_date: journalDate,
       reference,
       memo,
+      period_id: periodId,
       source_type: 'manual',
       created_by: user.id,
     })
@@ -252,7 +265,7 @@ export async function createJournal(formData: FormData) {
 
 export async function updateJournal(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId } = await getActiveOrg();
+  const { orgId, role, user } = await getActiveOrg();
   const id = formData.get('id') as string;
   const journalDate = formData.get('journal_date') as string;
   const reference = (formData.get('reference') as string)?.trim() || null;
@@ -261,6 +274,17 @@ export async function updateJournal(formData: FormData) {
 
   if (!id || !journalDate) {
     redirect(`/journals/${id ?? ''}?error=` + encodeURIComponent('Journal ID and date are required.'));
+  }
+
+  try {
+    assertCanPerform(role, 'update', 'journals');
+  } catch (e) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          e instanceof PermissionError ? e.message : 'Permission denied.',
+        ),
+    );
   }
 
   // Period lock check
@@ -279,6 +303,27 @@ export async function updateJournal(formData: FormData) {
   validateLines(lines, `/journals/${id}`);
 
   const supabase = await createClient();
+
+  const { data: existingJournal, error: fetchErr } = await supabase
+    .from('journals')
+    .select('id, organisation_id, status')
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .single();
+
+  if (fetchErr || !existingJournal) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(fetchErr?.message ?? 'Journal not found.'),
+    );
+  }
+
+  if (existingJournal.status !== 'draft') {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent('Only draft journals can be edited.'),
+    );
+  }
 
   const { error: journalErr } = await supabase
     .from('journals')
@@ -315,6 +360,14 @@ export async function updateJournal(formData: FormData) {
     redirect(`/journals/${id}?error=` + encodeURIComponent(insErr.message));
   }
 
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'update_journal',
+    entityType: 'journal',
+    entityId: id,
+  });
+
   redirect('/journals');
 }
 
@@ -324,21 +377,70 @@ export async function updateJournal(formData: FormData) {
 
 export async function approveJournal(formData: FormData) {
   await assertWriteAllowed();
-  await getActiveOrg();
+  const { orgId, role, user } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   if (!id) redirect('/journals');
 
+  try {
+    assertCanPerform(role, 'approve', 'journals');
+  } catch (e) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          e instanceof PermissionError ? e.message : 'Permission denied.',
+        ),
+    );
+  }
+
   const supabase = await createClient();
+
+  const { data: journal, error: fetchErr } = await supabase
+    .from('journals')
+    .select('id, organisation_id, status, journal_date')
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .single();
+
+  if (fetchErr || !journal) {
+    redirect(`/journals/${id}?error=` + encodeURIComponent(fetchErr?.message ?? 'Journal not found.'));
+  }
+
+  if (journal.status !== 'draft') {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent('Only draft journals can be approved.'),
+    );
+  }
+
+  const locked = await isDateInLockedPeriod(journal.journal_date);
+  if (locked) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          'Cannot approve a journal in a closed or locked financial period.',
+        ),
+    );
+  }
 
   const { error } = await supabase
     .from('journals')
     .update({ status: 'approved' })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .eq('status', 'draft');
 
   if (error) {
     redirect(`/journals/${id}?error=` + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'approve_journal',
+    entityType: 'journal',
+    entityId: id,
+  });
 
   redirect(`/journals/${id}`);
 }
@@ -349,17 +451,58 @@ export async function approveJournal(formData: FormData) {
 
 export async function postJournal(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   if (!id) redirect('/journals');
 
+  try {
+    assertCanPerform(role, 'post', 'journals');
+  } catch (e) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          e instanceof PermissionError ? e.message : 'Permission denied.',
+        ),
+    );
+  }
+
   const supabase = await createClient();
+
+  const { data: journal, error: fetchErr } = await supabase
+    .from('journals')
+    .select('id, organisation_id, status, journal_date')
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .single();
+
+  if (fetchErr || !journal) {
+    redirect(`/journals/${id}?error=` + encodeURIComponent(fetchErr?.message ?? 'Journal not found.'));
+  }
+
+  if (journal.status !== 'approved') {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent('Only approved journals can be posted.'),
+    );
+  }
+
+  const locked = await isDateInLockedPeriod(journal.journal_date);
+  if (locked) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          'Cannot post a journal in a closed or locked financial period.',
+        ),
+    );
+  }
 
   const { error } = await supabase
     .from('journals')
     .update({ status: 'posted' })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .eq('status', 'approved');
 
   if (error) {
     redirect(`/journals/${id}?error=` + encodeURIComponent(error.message));
@@ -384,21 +527,62 @@ export async function postJournal(formData: FormData) {
 
 export async function deleteJournal(formData: FormData) {
   await assertWriteAllowed();
-  await getActiveOrg();
+  const { orgId, role, user } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   if (!id) redirect('/journals');
 
+  try {
+    assertCanPerform(role, 'delete', 'journals');
+  } catch (e) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(
+          e instanceof PermissionError ? e.message : 'Permission denied.',
+        ),
+    );
+  }
+
   const supabase = await createClient();
+
+  const { data: existingJournal, error: fetchErr } = await supabase
+    .from('journals')
+    .select('id, organisation_id, status')
+    .eq('id', id)
+    .eq('organisation_id', orgId)
+    .single();
+
+  if (fetchErr || !existingJournal) {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent(fetchErr?.message ?? 'Journal not found.'),
+    );
+  }
+
+  if (existingJournal.status !== 'draft') {
+    redirect(
+      `/journals/${id}?error=` +
+        encodeURIComponent('Only draft journals can be deleted.'),
+    );
+  }
 
   const { error } = await supabase
     .from('journals')
     .delete()
-    .eq('id', id);
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/journals/${id}?error=` + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'delete_journal',
+    entityType: 'journal',
+    entityId: id,
+  });
 
   redirect('/journals');
 }
@@ -415,6 +599,7 @@ export async function reverseJournal(
 
   try {
     assertCanPerform(role, 'create', 'journals');
+    assertCanPerform(role, 'post', 'journals');
   } catch (e) {
     return { error: e instanceof PermissionError ? e.message : 'Permission denied.' };
   }
@@ -465,14 +650,25 @@ export async function reverseJournal(
     return { error: `Reversal validation failed: ${validation.errors.join('; ')}` };
   }
 
+  const reversalDate = new Date().toISOString().split('T')[0];
+  const locked = await isDateInLockedPeriod(reversalDate);
+  if (locked) {
+    return {
+      error:
+        'Cannot create a reversal in a closed or locked financial period.',
+    };
+  }
+  const periodId = await getFinancialPeriodIdForDate(reversalDate);
+
   const reversalMemo = `Reversal of: ${journal.memo ?? journalId.slice(0, 8)}`;
   const { data: reversalJournal, error: createErr } = await admin
     .from('journals')
     .insert({
       organisation_id: orgId,
-      journal_date: new Date().toISOString().split('T')[0],
+      journal_date: reversalDate,
       memo: reversalMemo,
       status: 'draft',
+      period_id: periodId,
       created_by: user.id,
       reversal_of: journalId,
     })

@@ -158,8 +158,37 @@ export function PaymentRunDetailClient({ run, items, bankAccounts, canEdit }: Pr
 
   return (
     <div className="space-y-6">
-      {/* Summary card */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="app-toolbar">
+        {isPosted && (
+          <>
+            {run.journal_id && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/journals/${run.journal_id}`}>
+                  <ExternalLink size={14} className="mr-1" />
+                  View Journal
+                </Link>
+              </Button>
+            )}
+            <Button asChild variant="outline" size="sm">
+              <Link href="/banking">
+                <FileText size={14} className="mr-1" />
+                Reconciliation
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportCsv}>
+              <Download size={14} className="mr-1" />
+              Export CSV
+            </Button>
+          </>
+        )}
+        {(!isDraft || !canEdit) && (
+          <Button asChild variant="outline" size="sm">
+            <Link href="/payment-runs">Back to Payment Runs</Link>
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Run Date</p>
@@ -193,36 +222,10 @@ export function PaymentRunDetailClient({ run, items, bankAccounts, canEdit }: Pr
         </Card>
       </div>
 
-      {/* Posted: link to journal + export */}
       {isPosted && (
-        <div className="rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+        <div className="rounded-[1.25rem] border border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-800">
           <CheckCircle size={16} className="text-green-600 shrink-0" />
-          <span>This payment run has been posted.</span>
-          {run.journal_id && (
-            <>
-              <Link
-                href={`/journals/${run.journal_id}`}
-                className="underline hover:no-underline font-medium ml-1"
-              >
-                View journal <ExternalLink size={12} className="inline ml-0.5" />
-              </Link>
-              <span className="mx-1">|</span>
-            </>
-          )}
-          <Link
-            href="/banking"
-            className="underline hover:no-underline font-medium"
-          >
-            Bank reconciliation <ExternalLink size={12} className="inline ml-0.5" />
-          </Link>
-          <span className="mx-1">|</span>
-          <button
-            onClick={handleExportCsv}
-            className="underline hover:no-underline font-medium"
-          >
-            <Download size={12} className="inline mr-0.5" />
-            Export CSV
-          </button>
+          <span>This payment run has been posted and is ready for reconciliation.</span>
         </div>
       )}
 
@@ -351,12 +354,6 @@ export function PaymentRunDetailClient({ run, items, bankAccounts, canEdit }: Pr
         </Card>
       )}
 
-      {/* Read-only: back button */}
-      {(!isDraft || !canEdit) && (
-        <Button asChild variant="outline">
-          <Link href="/payment-runs">Back to Payment Runs</Link>
-        </Button>
-      )}
     </div>
   );
 }

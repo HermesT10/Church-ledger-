@@ -161,7 +161,7 @@ export default async function AccountsPage({
       />
 
       {/* Report links */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="app-filter-bar">
         <Button asChild variant="outline" size="sm">
           <Link href="/reports/balance-sheet">
             <FileText size={14} className="mr-1.5" />
@@ -177,7 +177,7 @@ export default async function AccountsPage({
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {ACCOUNT_TYPE_ORDER.map((t) => {
           const count = grouped[t]?.length ?? 0;
           return (
@@ -195,8 +195,8 @@ export default async function AccountsPage({
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium text-muted-foreground mr-1">Filter:</span>
+      <div className="app-filter-bar">
+        <span className="mr-1 text-sm font-medium text-muted-foreground">Filter:</span>
         <Button
           asChild
           variant={!filterType ? 'default' : 'outline'}
@@ -221,7 +221,7 @@ export default async function AccountsPage({
           </Button>
         ))}
 
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           <Button
             asChild
             variant={activeOnly ? 'default' : 'outline'}
@@ -285,7 +285,7 @@ export default async function AccountsPage({
             if (categoriesToShow.length === 0 && typeAccounts.length === 0) return null;
 
             return (
-              <Card key={type} className={`border rounded-2xl shadow-sm ${TYPE_CARD_STYLES[type]}`}>
+              <Card key={type} className={`border shadow-sm ${TYPE_CARD_STYLES[type]}`}>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2">
                     <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${TYPE_ICON_STYLES[type]}`}>
@@ -298,7 +298,7 @@ export default async function AccountsPage({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="app-table-shell">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -315,10 +315,10 @@ export default async function AccountsPage({
                           const catAccounts = categoriesMap.get(category) ?? [];
                           return (
                           <Fragment key={`${type}-${category}`}>
-                            <TableRow className="bg-muted/30 hover:bg-muted/30">
+                            <TableRow className="app-table-group-row">
                               <TableCell
                                 colSpan={6}
-                                className="py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+                                className="app-table-group-cell"
                               >
                                 {category}
                               </TableCell>
@@ -329,7 +329,7 @@ export default async function AccountsPage({
                                 key={account.id}
                                 className={!account.is_active ? 'opacity-50' : ''}
                               >
-                                <TableCell className="font-mono text-sm">
+                                <TableCell className="font-mono text-sm text-slate-500">
                                   {canEdit ? (
                                     <Link
                                       href={`/accounts/${account.id}`}
@@ -347,7 +347,7 @@ export default async function AccountsPage({
                                   )}
                                   {account.name}
                                 </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">
+                                <TableCell className="text-sm text-slate-500">
                                   {account.reporting_category ?? '—'}
                                 </TableCell>
                                 <TableCell className="text-center">
@@ -361,17 +361,17 @@ export default async function AccountsPage({
                                     </Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="text-right font-mono text-sm">
+                                <TableCell className="text-right font-mono text-sm text-slate-500">
                                   {account.transaction_count}
                                 </TableCell>
                                 <TableCell className="text-right font-mono text-sm">
                                   <span
                                     className={
                                       account.balance_pence > 0
-                                        ? 'text-emerald-600'
+                                        ? 'app-table-amount-positive'
                                         : account.balance_pence < 0
-                                        ? 'text-rose-600'
-                                        : 'text-muted-foreground'
+                                        ? 'app-table-amount-negative'
+                                        : 'app-table-amount-muted'
                                     }
                                   >
                                     {penceToPounds(account.balance_pence)}
@@ -398,7 +398,7 @@ export default async function AccountsPage({
           })}
         </div>
       ) : (
-        <Card className="border shadow-sm rounded-2xl bg-slate-100/55 border-slate-200/40">
+        <Card className="border shadow-sm bg-slate-100/55 border-slate-200/40">
           <CardContent className="py-12 text-center">
             <BookOpen className="mx-auto h-10 w-10 text-muted-foreground/40" />
             <p className="mt-3 text-sm text-muted-foreground">

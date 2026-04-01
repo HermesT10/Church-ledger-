@@ -47,7 +47,7 @@ export function SupplierEditForm({ accounts, funds, supplier, mode }: Props) {
   const formAction = isEdit ? updateSupplier : createSupplierFull;
 
   return (
-    <Card className="border shadow-sm rounded-2xl">
+    <Card className="app-surface">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -64,7 +64,7 @@ export function SupplierEditForm({ accounts, funds, supplier, mode }: Props) {
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="space-y-5">
         {error && (
           <div className="mb-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
@@ -80,87 +80,92 @@ export function SupplierEditForm({ accounts, funds, supplier, mode }: Props) {
         <form className="flex flex-col gap-5">
           {isEdit && <input type="hidden" name="id" value={supplier!.id} />}
 
-          {/* Basic info */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name">Supplier Name *</Label>
-              <Input
-                id="name"
-                name="name"
-                defaultValue={supplier?.name ?? ''}
-                placeholder="e.g. Office Supplies Ltd"
-                required
+          <div className="rounded-[1.5rem] border border-border/70 bg-background/70 p-5">
+            <div className="mb-4">
+              <p className="text-sm font-semibold">Basic information</p>
+              <p className="text-xs text-muted-foreground">
+                Contact details used across bills, payments, and supplier matching.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="name">Supplier Name *</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  defaultValue={supplier?.name ?? ''}
+                  placeholder="e.g. Office Supplies Ltd"
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="contact_name">Contact Name</Label>
+                <Input
+                  id="contact_name"
+                  name="contact_name"
+                  defaultValue={supplier?.contact_name ?? ''}
+                  placeholder="e.g. John Smith"
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  defaultValue={supplier?.email ?? ''}
+                  placeholder="accounts@supplier.com"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  defaultValue={supplier?.phone ?? ''}
+                  placeholder="020 1234 5678"
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-2">
+              <Label htmlFor="address">Address</Label>
+              <textarea
+                id="address"
+                name="address"
+                defaultValue={supplier?.address ?? ''}
+                placeholder="123 High Street, London, SW1A 1AA"
+                rows={3}
+                className="flex min-h-24 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="contact_name">Contact Name</Label>
+            <div className="mt-4 flex flex-col gap-2">
+              <Label htmlFor="bank_details">Bank Details</Label>
               <Input
-                id="contact_name"
-                name="contact_name"
-                defaultValue={supplier?.contact_name ?? ''}
-                placeholder="e.g. John Smith"
+                id="bank_details"
+                name="bank_details"
+                defaultValue={supplier?.bank_details ?? ''}
+                placeholder="Sort code & account number"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                defaultValue={supplier?.email ?? ''}
-                placeholder="accounts@supplier.com"
-              />
+          <div className="rounded-[1.5rem] border border-border/70 bg-background/70 p-5">
+            <div className="mb-4">
+              <p className="text-sm font-semibold">Default coding</p>
+              <p className="text-xs text-muted-foreground">
+                These values pre-fill new bills and help keep workflow entry consistent.
+              </p>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                name="phone"
-                defaultValue={supplier?.phone ?? ''}
-                placeholder="020 1234 5678"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="address">Address</Label>
-            <textarea
-              id="address"
-              name="address"
-              defaultValue={supplier?.address ?? ''}
-              placeholder="123 High Street, London, SW1A 1AA"
-              rows={3}
-              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="bank_details">Bank Details</Label>
-            <Input
-              id="bank_details"
-              name="bank_details"
-              defaultValue={supplier?.bank_details ?? ''}
-              placeholder="Sort code & account number"
-            />
-          </div>
-
-          {/* Default account & fund */}
-          <div className="border-t pt-4 mt-2">
-            <p className="text-sm font-medium mb-3">Default Settings</p>
-            <p className="text-xs text-muted-foreground mb-4">
-              These will auto-fill when creating new bills for this supplier.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="default_account_id">Default Expense Account</Label>
                 <select
                   id="default_account_id"
                   name="default_account_id"
                   defaultValue={supplier?.default_account_id ?? ''}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">None</option>
                   {accounts.map((a) => (
@@ -176,7 +181,7 @@ export function SupplierEditForm({ accounts, funds, supplier, mode }: Props) {
                   id="default_fund_id"
                   name="default_fund_id"
                   defaultValue={supplier?.default_fund_id ?? ''}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">None</option>
                   {funds.map((f) => (
@@ -190,7 +195,7 @@ export function SupplierEditForm({ accounts, funds, supplier, mode }: Props) {
           </div>
 
           {/* Action buttons */}
-          <div className="flex gap-2 flex-wrap border-t pt-4 mt-2">
+          <div className="app-toolbar border-t border-border/70 pt-5">
             <Button formAction={formAction}>
               {isEdit ? 'Save Changes' : 'Create Supplier'}
             </Button>

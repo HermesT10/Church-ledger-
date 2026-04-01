@@ -1,6 +1,6 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import { assertActiveOrgAccess, getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
@@ -10,6 +10,7 @@ import { assertWriteAllowed } from '@/lib/demo';
 /* ------------------------------------------------------------------ */
 
 export async function listBankAccounts(orgId: string) {
+  await assertActiveOrgAccess(orgId);
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -43,6 +44,7 @@ export async function createBankAccount(
 
   try { assertCanPerform(role, 'create', 'banking'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  await assertActiveOrgAccess(orgId);
 
   const name = payload.name?.trim();
   if (!name) {
@@ -82,6 +84,7 @@ export async function seedBankAccounts(orgId: string) {
 
   try { assertCanPerform(role, 'seed', 'settings'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 

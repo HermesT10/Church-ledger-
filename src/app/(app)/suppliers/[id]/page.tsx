@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PageShell } from '@/components/page-shell';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Table,
@@ -99,8 +100,7 @@ export default async function SupplierDetailPage({
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6 space-y-8">
-      {/* Back + header */}
+    <PageShell className="max-w-7xl">
       <div className="space-y-2">
         <Link
           href="/suppliers"
@@ -109,9 +109,12 @@ export default async function SupplierDetailPage({
           <ArrowLeft className="mr-1 h-4 w-4" />
           Back to Suppliers
         </Link>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{supplier.name}</h1>
+        <div className="flex items-start justify-between gap-3 rounded-[1.75rem] border border-border/70 bg-card/88 p-5 shadow-sm backdrop-blur-sm">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold tracking-tight">{supplier.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              Review supplier history, defaults, and bank matching rules.
+            </p>
             {!supplier.is_active && (
               <Badge className="bg-gray-100 text-gray-600 border-gray-200">Archived</Badge>
             )}
@@ -136,7 +139,7 @@ export default async function SupplierDetailPage({
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 p-5 text-white shadow-lg ring-1 ring-white/20">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium opacity-80">Outstanding</p>
@@ -173,7 +176,7 @@ export default async function SupplierDetailPage({
 
       {/* Contact & Defaults Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle className="text-base">Contact Information</CardTitle>
           </CardHeader>
@@ -207,7 +210,7 @@ export default async function SupplierDetailPage({
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle className="text-base">Default Settings</CardTitle>
             <CardDescription>
@@ -228,7 +231,7 @@ export default async function SupplierDetailPage({
       </div>
 
       {/* Match Rules */}
-      <Card className="border shadow-sm rounded-2xl">
+      <Card className="app-surface">
         <CardHeader>
           <CardTitle className="text-base">Auto-Suggest Match Rules</CardTitle>
           <CardDescription>
@@ -245,7 +248,7 @@ export default async function SupplierDetailPage({
       </Card>
 
       {/* Invoices Table */}
-      <Card className="border shadow-sm rounded-2xl">
+      <Card className="app-surface">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -401,6 +404,6 @@ export default async function SupplierDetailPage({
           </CardContent>
         </Card>
       )}
-    </div>
+    </PageShell>
   );
 }

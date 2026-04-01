@@ -85,35 +85,36 @@ export function ReconciliationHistoryClient({ bankAccounts, isAdmin }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Sub-navigation */}
-      <div className="flex gap-4 text-sm border-b">
+      <div className="app-tab-bar">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
         <Link
           href="/reconciliation"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Journal Matching
         </Link>
         <Link
           href="/reconciliation/statement"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Statement Reconciliation
         </Link>
         <Link
           href="/reconciliation/clearing"
-          className="text-muted-foreground hover:text-foreground transition-colors pb-2"
+          className="app-tab-link"
         >
           Clearing Accounts
         </Link>
-        <span className="font-medium text-foreground border-b-2 border-primary pb-2">
+        <span className="app-tab-link-active">
           History
         </span>
+        </div>
       </div>
 
       {/* Bank account selector */}
-      <Card className="border shadow-sm rounded-2xl">
+      <Card className="app-surface">
         <CardContent className="py-4">
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="app-filter-bar gap-4">
             <label className="text-sm font-medium">Bank Account</label>
             <select
               value={selectedBankId}
@@ -138,7 +139,7 @@ export function ReconciliationHistoryClient({ bankAccounts, isAdmin }: Props) {
 
       {/* History table */}
       {loaded && (
-        <Card className="border shadow-sm rounded-2xl">
+        <Card className="app-surface">
           <CardHeader>
             <CardTitle>Past Reconciliations ({history.length})</CardTitle>
             <CardDescription>
@@ -152,7 +153,7 @@ export function ReconciliationHistoryClient({ bankAccounts, isAdmin }: Props) {
                 <p>No reconciliation sessions found for this account.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="app-table-shell">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -173,13 +174,13 @@ export function ReconciliationHistoryClient({ bankAccounts, isAdmin }: Props) {
                         <TableCell className="whitespace-nowrap font-medium">
                           {formatDate(rec.statement_date)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
+                        <TableCell className="text-right font-mono text-sm text-slate-500">
                           {penceToPounds(rec.opening_balance_pence)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
+                        <TableCell className="text-right font-mono text-sm text-slate-500">
                           {penceToPounds(rec.statement_closing_balance_pence)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
+                        <TableCell className="text-right font-mono text-sm text-slate-500">
                           {rec.cleared_balance_pence != null
                             ? penceToPounds(rec.cleared_balance_pence)
                             : '—'}

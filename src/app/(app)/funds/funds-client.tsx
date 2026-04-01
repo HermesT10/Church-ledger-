@@ -241,8 +241,8 @@ export function FundsClient({
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium text-muted-foreground mr-1">Filter:</span>
+      <div className="app-filter-bar">
+        <span className="mr-1 text-sm font-medium text-muted-foreground">Filter:</span>
         <Button
           asChild
           variant={!filterType ? 'default' : 'outline'}
@@ -281,9 +281,9 @@ export function FundsClient({
       </div>
 
       {/* Period Selector */}
-      <div className="flex items-center gap-2 flex-wrap rounded-2xl border border-slate-200/40 bg-slate-100/55 p-3">
+      <div className="app-filter-bar">
         <Calendar size={16} className="text-muted-foreground" />
-        <span className="text-sm font-medium text-muted-foreground mr-1">Period:</span>
+        <span className="mr-1 text-sm font-medium text-muted-foreground">Period:</span>
         {PERIODS.map((p) => (
           <Button
             key={p}
@@ -295,7 +295,7 @@ export function FundsClient({
           </Button>
         ))}
         {initialPeriod === 'custom' && (
-          <div className="flex items-center gap-2 ml-2">
+          <div className="ml-2 flex items-center gap-2">
             <Input
               type="date"
               value={customFrom}
@@ -335,7 +335,7 @@ export function FundsClient({
             const typeBalance = typeFunds.reduce((sum, f) => sum + f.balance_pence, 0);
 
             return (
-              <Card key={type} className={`border rounded-2xl shadow-sm ${TYPE_CARD_STYLES[type]}`}>
+              <Card key={type} className={`border shadow-sm ${TYPE_CARD_STYLES[type]}`}>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2">
                     <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${TYPE_ICON_STYLES[type]}`}>
@@ -351,7 +351,7 @@ export function FundsClient({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="app-table-shell">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -376,10 +376,10 @@ export function FundsClient({
                         {Array.from(groups.entries()).map(([group, grpFunds]) => (
                           <Fragment key={`${type}-${group}`}>
                             {groups.size > 1 && (
-                              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                              <TableRow className="app-table-group-row">
                                 <TableCell
                                   colSpan={7}
-                                  className="py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+                                  className="app-table-group-cell"
                                 >
                                   {group}
                                 </TableCell>
@@ -422,17 +422,17 @@ export function FundsClient({
                                       )
                                     )}
                                   </TableCell>
-                                  <TableCell className="text-right font-mono text-sm text-green-700">
+                                  <TableCell className="text-right font-mono text-sm app-table-amount-positive">
                                     {fund.income_pence > 0 ? penceToPounds(fund.income_pence) : '—'}
                                   </TableCell>
-                                  <TableCell className="text-right font-mono text-sm text-red-700">
+                                  <TableCell className="text-right font-mono text-sm app-table-amount-negative">
                                     {fund.expense_pence > 0 ? penceToPounds(fund.expense_pence) : '—'}
                                   </TableCell>
                                   <TableCell className="text-right font-mono text-sm">
                                     <span className={
-                                      fund.net_movement_pence > 0 ? 'text-green-700' :
-                                      fund.net_movement_pence < 0 ? 'text-red-700' :
-                                      'text-muted-foreground'
+                                      fund.net_movement_pence > 0 ? 'app-table-amount-positive' :
+                                      fund.net_movement_pence < 0 ? 'app-table-amount-negative' :
+                                      'app-table-amount-muted'
                                     }>
                                       {fund.net_movement_pence !== 0 ? penceToPounds(fund.net_movement_pence) : '—'}
                                     </span>
@@ -441,10 +441,10 @@ export function FundsClient({
                                     <span
                                       className={
                                         fund.balance_pence > 0
-                                          ? 'text-emerald-600'
+                                          ? 'app-table-amount-positive'
                                           : fund.balance_pence < 0
-                                          ? 'text-rose-600'
-                                          : 'text-muted-foreground'
+                                          ? 'app-table-amount-negative'
+                                          : 'app-table-amount-muted'
                                       }
                                     >
                                       {penceToPounds(fund.balance_pence)}
@@ -470,7 +470,7 @@ export function FundsClient({
           })}
         </div>
       ) : (
-        <Card className="border shadow-sm rounded-2xl bg-slate-100/55 border-slate-200/40">
+        <Card className="border shadow-sm bg-slate-100/55 border-slate-200/40">
           <CardContent className="py-12 text-center">
             <Layers className="mx-auto h-10 w-10 text-muted-foreground/40" />
             <p className="mt-3 text-sm text-muted-foreground">

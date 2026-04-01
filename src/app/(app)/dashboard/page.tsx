@@ -1,6 +1,7 @@
 import { getActiveOrg } from '@/lib/org';
 import { getDashboardOverview } from '@/lib/reports/dashboard';
 import { getDashboardLayout } from '@/lib/dashboard/actions';
+import { PageShell } from '@/components/page-shell';
 import { DashboardClient } from './dashboard-client';
 
 export default async function DashboardPage({
@@ -25,13 +26,13 @@ export default async function DashboardPage({
   const canEdit = role === 'admin' || role === 'treasurer';
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
+    <PageShell>
       <DashboardClient
         data={data}
         period={period}
         canEdit={canEdit}
         initialLayout={layout}
       />
-    </div>
+    </PageShell>
   );
 }

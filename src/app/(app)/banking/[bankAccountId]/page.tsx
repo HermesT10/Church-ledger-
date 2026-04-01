@@ -4,6 +4,7 @@ import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getBankAccountStats, getBankLines } from '@/lib/banking/actions';
 import { Landmark, CircleDollarSign, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
+import { PageShell } from '@/components/page-shell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/stat-card';
@@ -118,34 +119,12 @@ export default async function BankAccountDetailPage({
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <PageShell className="max-w-7xl">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <Link href="/banking" className="text-sm text-muted-foreground hover:underline">
             &larr; Back to Bank Accounts
           </Link>
-          <h1 className="text-2xl font-bold mt-2 flex items-center gap-2">
-            <Landmark size={24} />
-            {bankAccount.name}
-          </h1>
-          <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-            {bankAccount.sort_code && (
-              <span className="font-mono">{bankAccount.sort_code}</span>
-            )}
-            {bankAccount.account_number_last4 && (
-              <span className="font-mono">****{bankAccount.account_number_last4}</span>
-            )}
-            <Badge variant="outline">{bankAccount.currency}</Badge>
-            {!bankAccount.is_active && (
-              <Badge variant="destructive">Inactive</Badge>
-            )}
-            {bankAccount.linked_account_id ? (
-              <Badge variant="default">GL Linked</Badge>
-            ) : (
-              <Badge variant="secondary">No GL Account</Badge>
-            )}
-          </div>
         </div>
         {canEdit && (
           <Button asChild>
@@ -157,15 +136,49 @@ export default async function BankAccountDetailPage({
         )}
       </div>
 
+      <div className="rounded-[1.75rem] border border-border/80 bg-white/98 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Banking workspace
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">{bankAccount.name}</h1>
+          <p className="text-sm text-muted-foreground">
+            Review imported lines, allocation status, and reconciliation readiness.
+          </p>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-2 font-medium text-foreground">
+            <Landmark size={18} className="text-muted-foreground" />
+            Bank account
+          </span>
+          <div className="h-4 w-px bg-border/80" />
+          {bankAccount.sort_code && (
+            <span className="font-mono">{bankAccount.sort_code}</span>
+          )}
+          {bankAccount.account_number_last4 && (
+            <span className="font-mono">****{bankAccount.account_number_last4}</span>
+          )}
+          <Badge variant="outline">{bankAccount.currency}</Badge>
+          {!bankAccount.is_active && (
+            <Badge variant="destructive">Inactive</Badge>
+          )}
+          {bankAccount.linked_account_id ? (
+            <Badge variant="default">GL Linked</Badge>
+          ) : (
+            <Badge variant="secondary">No GL Account</Badge>
+          )}
+        </div>
+      </div>
+
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             title="Current Balance"
             value={stats.currentBalancePence != null ? `£${penceToPounds(stats.currentBalancePence)}` : '—'}
             subtitle="Latest statement balance"
             href={`/banking/${bankAccountId}`}
-            gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+            tint="blue"
             icon={<CircleDollarSign size={20} />}
           />
           <StatCard
@@ -173,7 +186,7 @@ export default async function BankAccountDetailPage({
             value={stats.totalLines}
             subtitle="All imported lines"
             href={`/banking/${bankAccountId}`}
-            gradient="bg-gradient-to-br from-violet-500 to-violet-700"
+            tint="violet"
             icon={<Landmark size={20} />}
           />
           <StatCard
@@ -181,7 +194,7 @@ export default async function BankAccountDetailPage({
             value={stats.allocatedCount}
             subtitle="Assigned to accounts"
             href={filterUrl({ filter: 'allocated', page: undefined })}
-            gradient="bg-gradient-to-br from-emerald-500 to-emerald-700"
+            tint="emerald"
             icon={<CheckCircle2 size={20} />}
           />
           <StatCard
@@ -189,14 +202,14 @@ export default async function BankAccountDetailPage({
             value={stats.unallocatedCount}
             subtitle={stats.unallocatedAmountPence > 0 ? `£${penceToPounds(stats.unallocatedAmountPence)} pending` : 'All clear'}
             href={filterUrl({ filter: 'unallocated', page: undefined })}
-            gradient="bg-gradient-to-br from-amber-500 to-amber-700"
+            tint="amber"
             icon={<AlertCircle size={20} />}
           />
         </div>
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="app-filter-bar">
         <span className="text-sm font-medium text-muted-foreground mr-1">Filter:</span>
         {(['all', 'unallocated', 'allocated'] as const).map((f) => (
           <Button
@@ -215,7 +228,7 @@ export default async function BankAccountDetailPage({
         <form
           action={`/banking/${bankAccountId}`}
           method="get"
-          className="flex items-center gap-1 ml-auto"
+          className="ml-auto flex items-center gap-1"
         >
           {sp.filter && sp.filter !== 'all' && (
             <input type="hidden" name="filter" value={sp.filter} />
@@ -241,7 +254,7 @@ export default async function BankAccountDetailPage({
       </div>
 
       {linesError && (
-        <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-[1.25rem] bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {linesError}
         </div>
       )}
@@ -249,7 +262,7 @@ export default async function BankAccountDetailPage({
       {/* Transactions Table */}
       {lines.length > 0 ? (
         <>
-          <div className="rounded-md border overflow-x-auto">
+          <div className="app-table-shell">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -264,8 +277,8 @@ export default async function BankAccountDetailPage({
               </TableHeader>
               <TableBody>
                 {lines.map((line) => (
-                  <TableRow key={line.id} className={!line.allocated ? 'bg-amber-100/55' : ''}>
-                    <TableCell className="whitespace-nowrap font-mono text-sm">
+                  <TableRow key={line.id} className={!line.allocated ? 'bg-amber-50/80' : ''}>
+                    <TableCell className="whitespace-nowrap font-mono text-sm text-slate-500">
                       {formatDate(line.txn_date)}
                     </TableCell>
                     <TableCell className="max-w-[250px] truncate">
@@ -276,12 +289,12 @@ export default async function BankAccountDetailPage({
                     </TableCell>
                     <TableCell
                       className={`text-right font-mono text-sm ${
-                        line.amount_pence < 0 ? 'text-red-600' : 'text-green-600'
+                        line.amount_pence < 0 ? 'app-table-amount-negative' : 'app-table-amount-positive'
                       }`}
                     >
                       {line.amount_pence < 0 ? '-' : ''}£{penceToPounds(Math.abs(line.amount_pence))}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
+                    <TableCell className="text-right font-mono text-sm text-slate-500">
                       {line.balance_pence != null
                         ? `£${penceToPounds(line.balance_pence)}`
                         : '—'}
@@ -342,7 +355,7 @@ export default async function BankAccountDetailPage({
           )}
         </>
       ) : (
-        <div className="rounded-md border p-8 text-center">
+        <div className="app-empty-state p-8 text-center">
           <Landmark className="mx-auto h-10 w-10 text-muted-foreground/40" />
           <p className="mt-3 text-sm text-muted-foreground">
             No transactions found.{' '}
@@ -354,6 +367,6 @@ export default async function BankAccountDetailPage({
           </p>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { StatementReconciliationClient } from './statement-reconciliation-client';
 
 export default async function StatementReconciliationPage() {
@@ -25,16 +27,12 @@ export default async function StatementReconciliationPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Statement Reconciliation</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Match your bank statement closing balance against the ledger.
-          Tick off cleared transactions and finalize when the difference is zero.
-        </p>
-      </div>
-
+    <PageShell className="max-w-7xl">
+      <PageHeader
+        title="Statement Reconciliation"
+        subtitle="Match statement balances to the ledger, clear lines, and finalize when the difference reaches zero."
+      />
       <StatementReconciliationClient bankAccounts={accounts} />
-    </div>
+    </PageShell>
   );
 }

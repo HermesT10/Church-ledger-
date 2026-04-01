@@ -206,7 +206,7 @@ function LoginForm() {
 
       {/* Form area */}
       <div className="flex-1 flex items-center justify-center px-6 py-10">
-        <div className="w-full max-w-[400px] space-y-6">
+        <div className="w-full max-w-[400px] rounded-[1.75rem] border border-border/70 bg-card/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-md space-y-6">
           {/* Heading */}
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Welcome back!</h1>
@@ -277,7 +277,7 @@ function LoginForm() {
             {/* Sign In button */}
             <Button
               formAction={login}
-              className="w-full h-11 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm"
+              className="w-full h-11 rounded-xl"
             >
               Login
             </Button>
@@ -295,7 +295,7 @@ function LoginForm() {
             variant="outline"
             onClick={handleGoogleLogin}
             type="button"
-            className="w-full h-11 rounded-lg border-gray-200 font-medium text-sm hover:bg-gray-50"
+            className="w-full h-11 rounded-xl font-medium text-sm"
           >
             <GoogleIcon />
             Google
@@ -333,14 +333,14 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense>
-      <main className="flex min-h-screen">
+      <main className="flex min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_30%),linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.96))]">
         {/* Left -- Brand Showcase (hidden on mobile) */}
         <div className="hidden lg:block lg:w-1/2">
           <BrandShowcase />
         </div>
 
         {/* Right -- Login Form */}
-        <div className="w-full lg:w-1/2 bg-white">
+        <div className="w-full lg:w-1/2 bg-transparent">
           <LoginForm />
         </div>
       </main>

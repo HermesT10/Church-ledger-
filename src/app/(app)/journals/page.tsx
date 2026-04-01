@@ -101,7 +101,7 @@ export default async function JournalsPage({
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total Journals"
           value={journals.length}
@@ -128,8 +128,8 @@ export default async function JournalsPage({
       </div>
 
       {/* Status filters */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium text-muted-foreground mr-1">Filter:</span>
+      <div className="app-filter-bar">
+        <span className="mr-1 text-sm font-medium text-muted-foreground">Filter:</span>
         <Button
           asChild
           variant={!filterStatus ? 'default' : 'outline'}
@@ -155,7 +155,7 @@ export default async function JournalsPage({
 
       {/* Table */}
       {journals.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm overflow-x-auto">
+        <div className="app-table-shell">
           <Table>
             <TableHeader>
               <TableRow>
@@ -208,7 +208,7 @@ export default async function JournalsPage({
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
+        <div className="app-empty-state">
           <FileText className="mx-auto h-10 w-10 text-muted-foreground/40" />
           <p className="mt-3 text-sm text-muted-foreground">
             No journals found.{' '}

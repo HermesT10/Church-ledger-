@@ -200,9 +200,8 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="app-toolbar">
         <div className="flex items-center gap-3">
           <Button asChild variant="ghost" size="sm">
             <Link href="/payroll">
@@ -212,9 +211,9 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">
-                Payroll — {formatMonth(run.payrollMonth)}
-              </h1>
+              <h2 className="text-xl font-semibold">
+                Payroll - {formatMonth(run.payrollMonth)}
+              </h2>
               <Badge variant={STATUS_VARIANTS[run.status] ?? 'outline'}>
                 {run.status === 'draft' ? 'Draft' : 'Posted'}
               </Badge>
@@ -224,7 +223,7 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isDraft && canEdit && (
             <>
               <Button
@@ -264,7 +263,7 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
       </div>
 
       {!accountsConfigured && isDraft && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+        <div className="rounded-[1.25rem] border border-amber-200/70 bg-amber-50/80 p-3 text-sm text-amber-800">
           Payroll accounts must be configured in{' '}
           <Link href="/settings" className="underline font-medium">
             Settings
@@ -274,7 +273,7 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: 'Gross', value: run.totalGrossPence },
           { label: 'Net Pay', value: run.totalNetPence },
@@ -282,7 +281,7 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
           { label: 'Employer NIC', value: run.totalNicPence },
           { label: 'Employer Pension', value: run.totalPensionPence },
         ].map((item) => (
-          <Card key={item.label} className="rounded-2xl shadow-sm">
+          <Card key={item.label}>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">{item.label}</p>
               <p className="text-lg font-bold">{formatPounds(item.value)}</p>

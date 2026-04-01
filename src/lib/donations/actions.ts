@@ -7,7 +7,10 @@ import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
-import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import {
+  getFinancialPeriodIdForDate,
+  isDateInLockedPeriod,
+} from '@/lib/periods/actions';
 import {
   validateDonation,
   buildDonationJournalLines,
@@ -38,7 +41,10 @@ export async function createDonation(params: {
 }): Promise<{ data: { id: string } | null; error: string | null }> {
   await assertWriteAllowed();
   const { orgId, role, user } = await getActiveOrg();
-  try { assertCanPerform(role, 'create', 'donations'); }
+  try {
+    assertCanPerform(role, 'create', 'donations');
+    assertCanPerform(role, 'post', 'donations');
+  }
   catch (e) { return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
 
   const netAmountPence = params.grossAmountPence - params.feeAmountPence;
@@ -124,6 +130,7 @@ export async function createDonation(params: {
     fundId: params.fundId,
     description: donorDesc,
   });
+  const periodId = await getFinancialPeriodIdForDate(params.donationDate);
 
   const admin = createAdminClient();
 
@@ -135,6 +142,7 @@ export async function createDonation(params: {
       journal_date: params.donationDate,
       memo: `Donation: ${donorDesc}`,
       status: 'draft',
+      period_id: periodId,
       source_type: 'donation',
       created_by: user.id,
     })
@@ -162,7 +170,16 @@ export async function createDonation(params: {
   }
 
   // Post journal
-  await admin.from('journals').update({ status: 'posted', posted_at: new Date().toISOString() }).eq('id', journal.id);
+  const { error: postErr } = await admin
+    .from('journals')
+    .update({ status: 'posted', posted_at: new Date().toISOString() })
+    .eq('id', journal.id);
+
+  if (postErr) {
+    await admin.from('journal_lines').delete().eq('journal_id', journal.id);
+    await admin.from('journals').delete().eq('id', journal.id);
+    return { data: null, error: postErr.message };
+  }
 
   // Create donation record
   const { data: donation, error: donErr } = await supabase

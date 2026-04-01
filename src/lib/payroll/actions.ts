@@ -8,7 +8,10 @@ import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
-import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import {
+  getFinancialPeriodIdForDate,
+  isDateInLockedPeriod,
+} from '@/lib/periods/actions';
 import {
   validatePayrollInputs,
   buildPayrollJournalLines,
@@ -17,6 +20,24 @@ import {
 import type { PayrollSplit } from './validation';
 import type { PayrollRunSummary, PayrollRunDetail } from './types';
 import type { PayrollLineWithEmployee } from '@/lib/employees/types';
+
+async function logApprovalEvent(params: {
+  orgId: string;
+  entityId: string;
+  action: string;
+  performedBy: string;
+  notes?: string;
+}) {
+  const supabase = await createClient();
+  await supabase.from('approval_events').insert({
+    organisation_id: params.orgId,
+    entity_type: 'payroll_run',
+    entity_id: params.entityId,
+    action: params.action,
+    performed_by: params.performedBy,
+    notes: params.notes ?? null,
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /*  listPayrollRuns                                                    */
@@ -263,6 +284,13 @@ export async function createPayrollRun(params: {
     }
   }
 
+  await logApprovalEvent({
+    orgId,
+    entityId: run.id,
+    action: 'created',
+    performedBy: user.id,
+  });
+
   return { id: run.id };
 }
 
@@ -287,6 +315,7 @@ export async function postPayrollRun(
     .from('payroll_runs')
     .select('*')
     .eq('id', runId)
+    .eq('organisation_id', orgId)
     .single();
 
   if (runErr || !run) {
@@ -396,6 +425,7 @@ export async function postPayrollRun(
   // 6. Create journal with source_type + source_id
   const monthLabel = run.payroll_month.slice(0, 7); // YYYY-MM
   const memo = `Payroll – ${monthLabel}`;
+  const periodId = await getFinancialPeriodIdForDate(run.payroll_month);
 
   const { data: journal, error: journalErr } = await admin
     .from('journals')
@@ -404,6 +434,7 @@ export async function postPayrollRun(
       journal_date: run.payroll_month,
       memo,
       status: 'draft',
+      period_id: periodId,
       source_type: 'payroll',
       source_id: runId,
       created_by: user.id,
@@ -468,6 +499,13 @@ export async function postPayrollRun(
     entityType: 'payroll_run',
     entityId: runId,
     metadata: { journalId: journal.id },
+  });
+
+  await logApprovalEvent({
+    orgId,
+    entityId: runId,
+    action: 'posted',
+    performedBy: user.id,
   });
 
   return {};
@@ -630,7 +668,7 @@ export async function deletePayrollRun(
   runId: string,
 ): Promise<{ error?: string }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { orgId, role, user } = await getActiveOrg();
 
   try { assertCanPerform(role, 'delete', 'payroll'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
@@ -642,6 +680,7 @@ export async function deletePayrollRun(
     .from('payroll_runs')
     .select('status')
     .eq('id', runId)
+    .eq('organisation_id', orgId)
     .single();
 
   if (!run) {
@@ -661,6 +700,21 @@ export async function deletePayrollRun(
   if (error) {
     return { error: error.message };
   }
+
+  await logApprovalEvent({
+    orgId,
+    entityId: runId,
+    action: 'deleted',
+    performedBy: user.id,
+  });
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'delete_payroll_run',
+    entityType: 'payroll_run',
+    entityId: runId,
+  });
 
   return {};
 }

@@ -1,6 +1,10 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import {
+  assertActiveOrgAccess,
+  getActiveOrg,
+  setActiveOrgCookie,
+} from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError, ALL_ROLES } from '@/lib/permissions';
@@ -27,6 +31,7 @@ export async function sendInvite(params: {
   } catch (e) {
     return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied' };
   }
+  await assertActiveOrgAccess(orgId);
 
   // Validate email
   const trimmedEmail = email.trim().toLowerCase();
@@ -164,7 +169,7 @@ export async function sendInvite(params: {
 export async function listInvites(
   orgId: string,
 ): Promise<{ data: InviteRow[]; error: string | null }> {
-  await getActiveOrg();
+  await assertActiveOrgAccess(orgId);
 
   const supabase = await createClient();
 
@@ -211,7 +216,8 @@ export async function revokeInvite(
   const { error } = await supabase
     .from('organisation_invites')
     .delete()
-    .eq('id', inviteId);
+    .eq('id', inviteId)
+    .eq('organisation_id', orgId);
 
   if (!error) {
     await logAuditEvent({
@@ -248,6 +254,7 @@ export async function resendInvite(
     .from('organisation_invites')
     .select('*')
     .eq('id', inviteId)
+    .eq('organisation_id', orgId)
     .single();
 
   if (fetchErr || !invite) {
@@ -261,7 +268,8 @@ export async function resendInvite(
   const { error: updateErr } = await supabase
     .from('organisation_invites')
     .update({ token: newToken, expires_at: newExpiresAt })
-    .eq('id', inviteId);
+    .eq('id', inviteId)
+    .eq('organisation_id', orgId);
 
   if (updateErr) return { error: updateErr.message };
 
@@ -334,6 +342,7 @@ export async function acceptInvite(
         .from('organisation_invites')
         .delete()
         .eq('id', invite.id);
+      await setActiveOrgCookie(invite.organisation_id);
       return { error: null };
     }
 
@@ -353,6 +362,7 @@ export async function acceptInvite(
         .delete()
         .eq('id', invite.id);
 
+      await setActiveOrgCookie(invite.organisation_id);
       return { error: null };
     }
   }
@@ -387,5 +397,6 @@ export async function acceptInvite(
     .delete()
     .eq('id', invite.id);
 
+  await setActiveOrgCookie(invite.organisation_id);
   return { error: null, orgName: org?.name ?? undefined };
 }

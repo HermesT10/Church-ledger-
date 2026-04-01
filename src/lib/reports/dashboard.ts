@@ -1,6 +1,6 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
+import { assertActiveOrgAccess, getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getCached, setCached } from '@/lib/cache';
 import { timedQuery } from '@/lib/perf';
@@ -92,6 +92,7 @@ export async function getDashboardOverview(params: {
   visibleWidgets?: string[];
 }): Promise<{ data: DashboardOverview; error: string | null }> {
   const { orgId, period, visibleWidgets = [] } = params;
+  await assertActiveOrgAccess(orgId);
   const wantWidget = (id: string) => visibleWidgets.includes(id);
 
   const cacheKey = `dashboard-overview:${orgId}:${period}:${visibleWidgets.sort().join(',')}`;

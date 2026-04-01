@@ -45,14 +45,15 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
   const pathname = usePathname();
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
+    <div className="flex min-h-[calc(100vh-4rem)] gap-6 px-5 py-6 lg:px-8 lg:py-8">
       {/* Sidebar */}
-      <aside className="w-56 shrink-0 border-r bg-muted/30 overflow-y-auto hidden md:block">
-        <nav className="py-4 px-2 space-y-0.5">
+      <aside className="hidden w-72 shrink-0 md:block">
+        <div className="sticky top-6 rounded-[1.5rem] border border-border/80 bg-white/98 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <nav className="space-y-1">
           {REPORT_NAV.map((item, idx) => {
             if ('type' in item && item.type === 'divider') {
               return (
-                <p key={idx} className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <p key={idx} className="px-3 pt-4 pb-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
                   {item.label}
                 </p>
               );
@@ -68,10 +69,10 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
               <Link
                 key={nav.href}
                 href={nav.href}
-                className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                className={`flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2.5 text-sm transition-colors ${
                   isActive
-                    ? 'bg-muted text-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    ? 'border-transparent bg-primary text-primary-foreground font-medium shadow-[0_8px_20px_rgba(120,76,255,0.18)]'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
                 <Icon size={14} />
@@ -80,10 +81,11 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
             );
           })}
         </nav>
+        </div>
       </aside>
 
       {/* Content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-w-0 flex-1 overflow-y-auto">
         {children}
       </main>
     </div>

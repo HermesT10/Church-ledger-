@@ -1,6 +1,8 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getUnbankedCollections } from '@/lib/cash/actions';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { NewDepositClient } from './new-deposit-client';
 
 export default async function NewDepositPage() {
@@ -18,9 +20,15 @@ export default async function NewDepositPage() {
   ]);
 
   return (
-    <NewDepositClient
-      bankAccounts={(bankAccountsRes.data ?? []) as { id: string; name: string }[]}
-      unbankedCollections={unbankResult.data}
-    />
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title="New Cash Deposit"
+        subtitle="Select posted collections, choose the receiving bank account, and post the deposit in one flow."
+      />
+      <NewDepositClient
+        bankAccounts={(bankAccountsRes.data ?? []) as { id: string; name: string }[]}
+        unbankedCollections={unbankResult.data}
+      />
+    </PageShell>
   );
 }

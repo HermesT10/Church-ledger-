@@ -3,6 +3,8 @@ import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { getSupplier } from '@/lib/suppliers/actions';
 import { SupplierEditForm } from '../../supplier-edit-form';
 
@@ -40,19 +42,16 @@ export default async function EditSupplierPage({
   ]);
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
+    <PageShell className="max-w-4xl">
       <div>
-        <Link
-          href={`/suppliers/${id}`}
-          className="text-sm text-muted-foreground hover:underline"
-        >
+        <Link href={`/suppliers/${id}`} className="text-sm text-muted-foreground hover:underline">
           &larr; Back to {supplier.name}
         </Link>
-        <h1 className="text-2xl font-bold mt-2">Edit Supplier</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Update supplier details and default settings.
-        </p>
       </div>
+      <PageHeader
+        title="Edit Supplier"
+        subtitle="Update supplier details, defaults, and billing preferences."
+      />
       <Suspense>
         <SupplierEditForm
           accounts={accounts ?? []}
@@ -61,6 +60,6 @@ export default async function EditSupplierPage({
           mode="edit"
         />
       </Suspense>
-    </div>
+    </PageShell>
   );
 }
