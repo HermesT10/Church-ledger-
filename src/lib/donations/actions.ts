@@ -31,6 +31,8 @@ export async function createDonation(params: {
   donationDate: string;
   channel: DonationChannel;
   fundId: string | null;
+  /** Optional link to income_streams (00071) for reporting */
+  incomeStreamId?: string | null;
   grossAmountPence: number;
   feeAmountPence: number;
   providerReference?: string | null;
@@ -64,9 +66,10 @@ export async function createDonation(params: {
   const locked = await isDateInLockedPeriod(params.donationDate);
   if (locked) return { data: null, error: 'Donation date falls in a locked financial period.' };
 
+  const supabase = await createClient();
+
   // Validate fund is active
   if (params.fundId) {
-    const supabase = await createClient();
     const { data: fund } = await supabase
       .from('funds')
       .select('is_active')
@@ -77,8 +80,22 @@ export async function createDonation(params: {
     }
   }
 
+  if (params.incomeStreamId) {
+    const { data: stream, error: streamErr } = await supabase
+      .from('income_streams')
+      .select('id, status')
+      .eq('id', params.incomeStreamId)
+      .eq('organisation_id', orgId)
+      .maybeSingle();
+    if (streamErr || !stream) {
+      return { data: null, error: 'Invalid income stream for this organisation.' };
+    }
+    if (stream.status !== 'active') {
+      return { data: null, error: 'Cannot use an archived income stream.' };
+    }
+  }
+
   // Get donation settings
-  const supabase = await createClient();
   const { data: settings } = await supabase
     .from('organisation_settings')
     .select('default_donations_income_account_id, default_donations_bank_account_id, default_donations_fee_account_id')
@@ -122,6 +139,7 @@ export async function createDonation(params: {
     donationsIncomeAccountId: incomeAccountId,
     feeAccountId: params.feeAmountPence > 0 ? feeAccountId : null,
     fundId: params.fundId,
+    incomeStreamId: params.incomeStreamId ?? null,
     description: donorDesc,
   });
 
@@ -150,6 +168,7 @@ export async function createDonation(params: {
     organisation_id: orgId,
     account_id: jl.account_id,
     fund_id: jl.fund_id || null,
+    income_stream_id: jl.income_stream_id ?? null,
     description: jl.description,
     debit_pence: jl.debit_pence,
     credit_pence: jl.credit_pence,
@@ -178,6 +197,7 @@ export async function createDonation(params: {
       channel: params.channel,
       source: 'manual',
       fund_id: params.fundId || null,
+      income_stream_id: params.incomeStreamId || null,
       journal_id: journal.id,
       status: 'posted',
       provider_reference: params.providerReference || null,
@@ -219,9 +239,12 @@ export async function listDonations(
     pageSize?: number;
     channel?: DonationChannel;
     fundId?: string;
+    incomeStreamId?: string;
     donorId?: string;
     startDate?: string;
     endDate?: string;
+    /** When false (default), rows with status voided or corrected are omitted. */
+    includeCorrectedVoided?: boolean;
   }
 ): Promise<{ data: DonationRow[]; total: number; error: string | null }> {
   const supabase = await createClient();
@@ -232,16 +255,23 @@ export async function listDonations(
 
   let query = supabase
     .from('donations')
-    .select('id, organisation_id, donor_id, donation_date, channel, source, fund_id, gross_amount_pence, fee_amount_pence, net_amount_pence, provider_reference, gift_aid_eligible, gift_aid_claim_id, import_batch_id, journal_id, status, created_at, donors(full_name), funds(name)', { count: 'exact' })
+    .select(
+      'id, organisation_id, donor_id, donation_date, channel, source, fund_id, income_stream_id, gross_amount_pence, fee_amount_pence, net_amount_pence, provider_reference, gift_aid_eligible, gift_aid_claim_id, import_batch_id, journal_id, status, created_at, donors(full_name), funds(name), income_streams(code, name)',
+      { count: 'exact' },
+    )
     .eq('organisation_id', orgId)
     .order('donation_date', { ascending: false })
     .range(from, to);
 
   if (options?.channel) query = query.eq('channel', options.channel);
   if (options?.fundId) query = query.eq('fund_id', options.fundId);
+  if (options?.incomeStreamId) query = query.eq('income_stream_id', options.incomeStreamId);
   if (options?.donorId) query = query.eq('donor_id', options.donorId);
   if (options?.startDate) query = query.gte('donation_date', options.startDate);
   if (options?.endDate) query = query.lte('donation_date', options.endDate);
+  if (!options?.includeCorrectedVoided) {
+    query = query.not('status', 'eq', 'voided').not('status', 'eq', 'corrected');
+  }
 
   const { data, error, count } = await query;
 
@@ -250,6 +280,7 @@ export async function listDonations(
   const rows: DonationRow[] = (data ?? []).map((d) => {
     const donor = d.donors as unknown as { full_name: string } | null;
     const fund = d.funds as unknown as { name: string } | null;
+    const stream = d.income_streams as unknown as { code: string; name: string } | null;
     return {
       id: d.id,
       organisation_id: d.organisation_id,
@@ -260,6 +291,8 @@ export async function listDonations(
       source: d.source,
       fund_id: d.fund_id,
       fund_name: fund?.name ?? null,
+      income_stream_id: d.income_stream_id ?? null,
+      income_stream_label: stream ? `${stream.code} · ${stream.name}` : null,
       gross_amount_pence: Number(d.gross_amount_pence ?? d.net_amount_pence ?? 0),
       fee_amount_pence: Number(d.fee_amount_pence ?? 0),
       net_amount_pence: Number(d.net_amount_pence ?? d.gross_amount_pence ?? 0),
@@ -268,7 +301,7 @@ export async function listDonations(
       gift_aid_claim_id: d.gift_aid_claim_id,
       import_batch_id: d.import_batch_id,
       journal_id: d.journal_id,
-      status: d.status as 'draft' | 'posted',
+      status: d.status as DonationRow['status'],
       created_at: d.created_at,
     };
   });
@@ -287,7 +320,7 @@ export async function getDonation(
 
   const { data: d, error } = await supabase
     .from('donations')
-    .select('*, donors(full_name), funds(name)')
+    .select('*, donors(full_name), funds(name), income_streams(code, name)')
     .eq('id', donationId)
     .single();
 
@@ -295,6 +328,7 @@ export async function getDonation(
 
   const donor = d.donors as unknown as { full_name: string } | null;
   const fund = d.funds as unknown as { name: string } | null;
+  const stream = d.income_streams as unknown as { code: string; name: string } | null;
 
   return {
     data: {
@@ -307,6 +341,8 @@ export async function getDonation(
       source: d.source,
       fund_id: d.fund_id,
       fund_name: fund?.name ?? null,
+      income_stream_id: d.income_stream_id ?? null,
+      income_stream_label: stream ? `${stream.code} · ${stream.name}` : null,
       gross_amount_pence: Number(d.gross_amount_pence ?? 0),
       fee_amount_pence: Number(d.fee_amount_pence ?? 0),
       net_amount_pence: Number(d.net_amount_pence ?? 0),
@@ -315,8 +351,12 @@ export async function getDonation(
       gift_aid_claim_id: d.gift_aid_claim_id,
       import_batch_id: d.import_batch_id,
       journal_id: d.journal_id,
-      status: d.status as 'draft' | 'posted',
+      status: d.status as DonationRow['status'],
       created_at: d.created_at,
+      bank_transaction_id: (d as { bank_transaction_id?: string | null }).bank_transaction_id ?? null,
+      corrected_at: (d as { corrected_at?: string | null }).corrected_at ?? null,
+      correction_reason: (d as { correction_reason?: string | null }).correction_reason ?? null,
+      reversal_journal_id: (d as { reversal_journal_id?: string | null }).reversal_journal_id ?? null,
     },
     error: null,
   };

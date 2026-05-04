@@ -2,11 +2,12 @@
 
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
 import { assertWriteAllowed } from '@/lib/demo';
+import { enforcePortalPermissionForContext } from '@/lib/portal-permissions';
+import { emptyStringToNull } from '@/lib/validation/uuid';
 import { MONTH_KEYS, monthKeyFromIndex, type MonthKey } from '@/lib/budgets/budgetMath';
 import {
   getVarianceStatus,
@@ -18,7 +19,6 @@ import {
   type GridUpdate,
   type MonthlyPlanningData,
   type MonthlyPlanningRow,
-  type MonthlyPlanningSection,
   type AnnualViewData,
   type AnnualAccountRow,
   type BudgetFundSummary,
@@ -50,6 +50,8 @@ function pickMonths(line: BudgetGridLine): Record<MonthKey, number> {
 /* ================================================================== */
 
 export async function listBudgets(orgId: string, year?: number) {
+  const ctx = await getActiveOrg();
+  await enforcePortalPermissionForContext(ctx, 'budgets', 'view');
   const supabase = await createClient();
 
   let query = supabase
@@ -81,6 +83,8 @@ export async function createBudget(
 
   try { assertCanPerform(role, 'create', 'budgets'); }
   catch (e) { return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  try { await enforcePortalPermissionForContext({ user, orgId, role }, 'budgets', 'create'); }
+  catch (e) { return { data: null, error: e instanceof Error ? e.message : 'Permission denied.' }; }
 
   if (!Number.isInteger(year) || year < 2000 || year > 2100) {
     return { data: null, error: 'Year must be an integer between 2000 and 2100.' };
@@ -313,7 +317,9 @@ export async function createNewVersion(budgetId: string): Promise<{ data: Budget
 /* ================================================================== */
 
 export async function getBudgetGrid(budgetId: string) {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'budgets', 'view', { scope: 'assigned_budgets', budgetId });
   const supabase = await createClient();
 
   const { data: budget, error: budgetErr } = await supabase
@@ -365,10 +371,13 @@ export async function getBudgetGrid(budgetId: string) {
 
 export async function saveBudgetGrid(budgetId: string, updates: GridUpdate[]) {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { role } = ctx;
 
   try { assertCanPerform(role, 'update', 'budgets'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  try { await enforcePortalPermissionForContext(ctx, 'budgets', 'edit_all', { scope: 'assigned_budgets', budgetId, requireSubmit: true }); }
+  catch (e) { return { success: false, error: e instanceof Error ? e.message : 'Permission denied.' }; }
 
   if (!updates.length) return { success: true, error: null };
 
@@ -417,7 +426,7 @@ export async function saveBudgetGrid(budgetId: string, updates: GridUpdate[]) {
       budget_id: budgetId,
       organisation_id: orgId,
       account_id: sample.accountId,
-      fund_id: sample.fundId ?? null,
+      fund_id: emptyStringToNull(sample.fundId) ?? null,
       ...months,
     });
   }
@@ -473,7 +482,7 @@ export async function addBudgetItem(params: {
       budget_id: params.budgetId,
       organisation_id: orgId,
       account_id: params.accountId,
-      fund_id: params.fundId ?? null,
+      fund_id: emptyStringToNull(params.fundId) ?? null,
       ...months,
     }, { onConflict: 'budget_id,account_id,fund_id' });
 

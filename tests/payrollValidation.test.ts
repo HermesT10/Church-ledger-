@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeGross,
+  computePayrollGross,
   validatePayrollInputs,
   buildPayrollJournalLines,
 } from '../src/lib/payroll/validation';
@@ -38,6 +39,20 @@ describe('computeGross', () => {
 
   it('handles zero values', () => {
     expect(computeGross(0, 0)).toBe(0);
+  });
+});
+
+describe('computePayrollGross', () => {
+  it('includes employee deductions but excludes employer costs', () => {
+    expect(
+      computePayrollGross({
+        netPence: 200000,
+        payePence: 40000,
+        employeeNicPence: 10000,
+        employeePensionPence: 5000,
+        otherDeductionsPence: 2500,
+      }),
+    ).toBe(257500);
   });
 });
 

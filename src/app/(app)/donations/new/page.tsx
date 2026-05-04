@@ -12,7 +12,7 @@ export default async function NewDonationPage() {
 
   const supabase = await createClient();
 
-  const [{ data: donors }, { data: funds }] = await Promise.all([
+  const [{ data: donors }, { data: funds }, { data: incomeStreams }] = await Promise.all([
     supabase
       .from('donors')
       .select('id, full_name')
@@ -25,6 +25,12 @@ export default async function NewDonationPage() {
       .eq('organisation_id', orgId)
       .eq('is_active', true)
       .order('name'),
+    supabase
+      .from('income_streams')
+      .select('id, code, name')
+      .eq('organisation_id', orgId)
+      .eq('status', 'active')
+      .order('code'),
   ]);
 
   return (
@@ -38,6 +44,7 @@ export default async function NewDonationPage() {
       <NewDonationClient
         donors={(donors ?? []).map((d) => ({ id: d.id, name: d.full_name }))}
         funds={(funds ?? []).map((f) => ({ id: f.id, name: f.name, type: f.type }))}
+        incomeStreams={(incomeStreams ?? []).map((s) => ({ id: s.id, code: s.code, name: s.name }))}
       />
     </div>
   );

@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { TrusteePackPanel } from '@/components/reports/trustee-packs';
+import type { TrusteePack } from '@/lib/reports/trustee-packs/types';
 import { Loader2 } from 'lucide-react';
 
 function penceToPounds(pence: number): string {
@@ -34,13 +36,14 @@ function penceToPounds(pence: number): string {
 
 interface Props {
   initialData: SQuarterlyReport | null;
+  initialPack?: TrusteePack | null;
   orgId: string;
   role: string;
   defaultYear: number;
   error?: string | null;
 }
 
-export function QuarterlyClient({ initialData, orgId, role, defaultYear, error }: Props) {
+export function QuarterlyClient({ initialData, initialPack, orgId, defaultYear, error }: Props) {
   const [report, setReport] = useState<SQuarterlyReport | null>(initialData);
   const [year, setYear] = useState(defaultYear);
   const [loading, setLoading] = useState(false);
@@ -95,6 +98,8 @@ export function QuarterlyClient({ initialData, orgId, role, defaultYear, error }
 
       {report && (
         <div className="space-y-6">
+          <TrusteePackPanel pack={initialPack ?? null} />
+
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {report.quarters.map((q) => (

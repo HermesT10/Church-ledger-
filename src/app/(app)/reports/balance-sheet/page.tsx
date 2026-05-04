@@ -1,14 +1,17 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getBalanceSheetReport } from '@/lib/reports/actions';
+import { generateReportSnapshot } from '@/lib/reports/engine/service';
+import { ProfessionalReportSnapshotPanel } from '@/components/reports/professional';
 import { BalanceSheetClient } from './balance-sheet-client';
 
 export default async function BalanceSheetPage() {
   const { orgId } = await getActiveOrg();
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-  const [reportRes, fundsRes] = await Promise.all([
+  const [reportRes, snapshotRes, fundsRes] = await Promise.all([
     getBalanceSheetReport({ organisationId: orgId, asOfDate: today }),
+    generateReportSnapshot('balance_sheet', { asOfDate: today }),
     (async () => {
       const supabase = await createClient();
       return supabase
@@ -23,12 +26,15 @@ export default async function BalanceSheetPage() {
   const funds = (fundsRes.data ?? []) as { id: string; name: string }[];
 
   return (
-    <BalanceSheetClient
-      initialData={reportRes.data}
-      orgId={orgId}
-      initialAsOfDate={today}
-      funds={funds}
-      error={reportRes.error}
-    />
+    <>
+      <ProfessionalReportSnapshotPanel snapshot={snapshotRes.data} />
+      <BalanceSheetClient
+        initialData={reportRes.data}
+        orgId={orgId}
+        initialAsOfDate={today}
+        funds={funds}
+        error={reportRes.error}
+      />
+    </>
   );
 }

@@ -24,6 +24,19 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Download, Loader2 } from 'lucide-react';
 import { ReportShell } from '@/components/reports/report-shell';
+import { ReportEmptyState } from '@/components/reports/report-empty-state';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
+import { ReportTableCard } from '@/components/reports/report-table-card';
+import { SummaryMetricCard } from '@/components/finance';
+import { buildIncomeStatementInsights } from '@/lib/reports/insights';
+import {
+  buildDateScope,
+  buildFundFilterLabel,
+  formatCurrencyFromPence,
+  type ReportDefinition,
+  type ReportKpi,
+  type ReportMetadata,
+} from '@/lib/reports/framework';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -144,6 +157,69 @@ export function IncomeStatementClient({
   const expenseCategory = report?.categories.find((c) => c.categoryName === 'Expenses');
 
   const asOfLabel = report ? `${MONTHS[month - 1]} ${year}` : undefined;
+  const metadata: ReportMetadata | undefined = report
+    ? {
+        scope: buildDateScope({ year, month, ytd: true }),
+        comparison: `${MONTHS[month - 1]} monthly result plus year-to-date totals`,
+        source: 'Posted journals and journal lines for income and expense accounts.',
+        filters: [
+          { label: 'Year', value: String(year) },
+          { label: 'Month', value: MONTHS[month - 1] },
+          { label: 'Fund', value: buildFundFilterLabel(fundId, funds) },
+        ],
+        footnotes: [
+          {
+            text: 'Only posted journals are included so draft or approved-but-unposted activity is excluded.',
+          },
+          {
+            text: 'Each account row can be drilled back to the underlying journal activity for the selected scope.',
+          },
+        ],
+      }
+    : undefined;
+
+  const kpis: ReportKpi[] | undefined = report
+    ? [
+        {
+          label: `${MONTHS[month - 1]} Net Result`,
+          value: formatCurrencyFromPence(report.totals.monthlyActual),
+          helper: 'Income less expenditure for the selected month.',
+          tone: report.totals.monthlyActual >= 0 ? 'positive' : 'critical',
+        },
+        {
+          label: 'Year To Date',
+          value: formatCurrencyFromPence(report.totals.ytdActual),
+          helper: 'Cumulative net result from the start of the year.',
+          tone: report.totals.ytdActual >= 0 ? 'positive' : 'caution',
+        },
+        {
+          label: 'Income',
+          value: formatCurrencyFromPence(incomeCategory?.totals.ytdActual ?? 0),
+          helper: 'Total posted income year to date.',
+          tone: 'positive',
+        },
+        {
+          label: 'Expenses',
+          value: formatCurrencyFromPence(expenseCategory?.totals.ytdActual ?? 0),
+          helper: 'Total posted expenditure year to date.',
+        },
+      ]
+    : undefined;
+
+  const definitions: ReportDefinition[] = [
+    {
+      term: 'Monthly actual',
+      meaning: 'Posted activity in the selected month only.',
+    },
+    {
+      term: 'Year to date',
+      meaning: 'Posted activity from the start of the financial year up to the selected month.',
+    },
+    {
+      term: 'Net surplus / deficit',
+      meaning: 'Income less expenditure. Positive is a surplus; negative is a deficit.',
+    },
+  ];
 
   return (
     <ReportShell
@@ -152,7 +228,7 @@ export function IncomeStatementClient({
       description="Revenue and expenses by account, with monthly and year-to-date totals."
       activeReport="/reports/income-statement"
       action={
-        <div className="flex flex-wrap items-center gap-3">
+        <ReportFilterBar className="items-center">
         <Select value={String(year)} onValueChange={handleYearChange}>
           <SelectTrigger className="w-28">
             <SelectValue />
@@ -206,12 +282,19 @@ export function IncomeStatementClient({
         )}
 
         {loading && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
-        </div>
+        </ReportFilterBar>
       }
       error={error}
+      metadata={metadata}
+      kpis={kpis}
+      insights={report ? buildIncomeStatementInsights(report) : undefined}
+      definitions={definitions}
     >
       {!report && !loading && (
-        <p className="text-sm text-muted-foreground">No data available.</p>
+        <ReportEmptyState
+          title="No income statement data available"
+          description="Post income and expense journals to populate this report."
+        />
       )}
 
       {report && (
@@ -233,20 +316,17 @@ export function IncomeStatementClient({
           />
 
           {/* Net Position */}
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">
-                Net Surplus / (Deficit)
-              </span>
-              <div className="flex gap-8 text-sm">
-                <span className="font-mono">
-                  {penceToPounds(report.totals.monthlyActual)}
-                </span>
-                <span className="font-mono font-semibold">
-                  {penceToPounds(report.totals.ytdActual)}
-                </span>
-              </div>
-            </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <SummaryMetricCard
+              label="Net Monthly Result"
+              value={<span className="font-mono">{penceToPounds(report.totals.monthlyActual)}</span>}
+              helper={`${MONTHS[month - 1]} surplus or deficit.`}
+            />
+            <SummaryMetricCard
+              label="Net Year To Date"
+              value={<span className="font-mono">{penceToPounds(report.totals.ytdActual)}</span>}
+              helper="Cumulative position from the start of the year."
+            />
           </div>
         </div>
       )}
@@ -271,13 +351,14 @@ function IncomeExpenseSection({
 
   return (
     <div>
-      <h3 className="text-base font-semibold mb-2 flex items-center gap-2">
+      <h3 className="mb-2 flex items-center gap-2 text-base font-semibold">
         {title}
         <Badge variant={title === 'Income' ? 'default' : 'secondary'}>
           {category.rows.length} accounts
         </Badge>
       </h3>
 
+      <ReportTableCard description={`${title} accounts for ${monthLabel} and the selected year-to-date scope.`}>
       <Table>
         <TableHeader>
           <TableRow>
@@ -324,6 +405,7 @@ function IncomeExpenseSection({
           </TableRow>
         </TableBody>
       </Table>
+      </ReportTableCard>
     </div>
   );
 }

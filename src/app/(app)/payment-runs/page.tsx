@@ -18,11 +18,13 @@ import {
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
+  approved: 'Approved',
   posted: 'Posted',
 };
 
 const STATUS_BADGE_COLORS: Record<string, string> = {
   draft: 'bg-amber-100 text-amber-800 border-amber-200',
+  approved: 'bg-blue-100 text-blue-800 border-blue-200',
   posted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
 
@@ -55,6 +57,7 @@ export default async function PaymentRunsPage({
   const statsRuns = allRunsForStats ?? [];
   const totalCount = statsRuns.length;
   const draftCount = statsRuns.filter((r) => r.status === 'draft').length;
+  const approvedCount = statsRuns.filter((r) => r.status === 'approved').length;
   const postedCount = statsRuns.filter((r) => r.status === 'posted').length;
 
   return (
@@ -73,7 +76,7 @@ export default async function PaymentRunsPage({
       />
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Runs"
           value={totalCount}
@@ -85,10 +88,18 @@ export default async function PaymentRunsPage({
         <StatCard
           title="Draft"
           value={draftCount}
-          subtitle="Awaiting posting"
+          subtitle="Awaiting approval"
           href="/payment-runs?status=draft"
           tint="amber"
           icon={<FileText size={20} />}
+        />
+        <StatCard
+          title="Approved"
+          value={approvedCount}
+          subtitle="Ready to post"
+          href="/payment-runs?status=approved"
+          tint="blue"
+          icon={<CheckCircle size={20} />}
         />
         <StatCard
           title="Posted"
@@ -109,7 +120,7 @@ export default async function PaymentRunsPage({
         >
           <Link href="/payment-runs">All</Link>
         </Button>
-        {['draft', 'posted'].map((s) => (
+        {['draft', 'approved', 'posted'].map((s) => (
           <Button
             key={s}
             asChild

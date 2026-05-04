@@ -7,6 +7,9 @@ import type { InvoiceSubmissionRow } from '@/lib/workflows/types';
 import {
   createInvoiceSubmission,
   reviewInvoiceSubmission,
+  markInvoiceUnderReview,
+  requestInvoiceChanges,
+  voidInvoiceSubmission,
   convertInvoiceToBill,
   listInvoiceSubmissions,
   uploadWorkflowFile,
@@ -67,25 +70,39 @@ function statusBadgeVariant(
   status: InvoiceSubmissionRow['status'],
 ): 'secondary' | 'default' | 'destructive' | 'outline' {
   switch (status) {
-    case 'pending':
+    case 'draft':
+    case 'submitted':
       return 'secondary';
+    case 'under_review':
+    case 'scheduled_for_payment':
+      return 'outline';
     case 'approved':
+    case 'paid':
       return 'default';
     case 'rejected':
+    case 'voided':
       return 'destructive';
-    case 'converted':
-      return 'outline';
+    case 'change_requested':
+      return 'secondary';
     default:
       return 'secondary';
   }
 }
 
+function statusLabel(status: InvoiceSubmissionRow['status']) {
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 const STATUS_TABS = [
   { value: 'all', label: 'All' },
-  { value: 'pending', label: 'Pending' },
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'under_review', label: 'Under Review' },
   { value: 'approved', label: 'Approved' },
+  { value: 'change_requested', label: 'Changes Requested' },
   { value: 'rejected', label: 'Rejected' },
-  { value: 'converted', label: 'Converted' },
+  { value: 'scheduled_for_payment', label: 'Scheduled' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'voided', label: 'Voided' },
 ] as const;
 
 export function InvoicesClient({
@@ -107,7 +124,7 @@ export function InvoicesClient({
   }, [initialData]);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [reviewTarget, setReviewTarget] = useState<{ id: string; decision: 'approved' | 'rejected' } | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<{ id: string; decision: 'approved' | 'rejected' | 'changes' | 'void' } | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [submitLoading, setSubmitLoading] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -196,7 +213,7 @@ export function InvoicesClient({
     form.reset();
     router.refresh();
 
-    if (!currentStatus || currentStatus === 'all' || currentStatus === 'pending') {
+    if (!currentStatus || currentStatus === 'all' || currentStatus === 'submitted') {
       startTransition(async () => {
         const res = await listInvoiceSubmissions(orgId, {
           status: currentStatus === 'all' || !currentStatus ? undefined : currentStatus,
@@ -208,7 +225,7 @@ export function InvoicesClient({
     }
   }
 
-  function openReviewDialog(id: string, decision: 'approved' | 'rejected') {
+  function openReviewDialog(id: string, decision: 'approved' | 'rejected' | 'changes' | 'void') {
     setReviewTarget({ id, decision });
     setReviewNote('');
     setReviewDialogOpen(true);
@@ -218,17 +235,27 @@ export function InvoicesClient({
     if (!reviewTarget) return;
 
     startTransition(async () => {
-      const { error } = await reviewInvoiceSubmission(
-        reviewTarget.id,
-        reviewTarget.decision,
-        reviewNote || undefined,
-      );
+      const result =
+        reviewTarget.decision === 'changes'
+          ? await requestInvoiceChanges(reviewTarget.id, reviewNote)
+          : reviewTarget.decision === 'void'
+            ? await voidInvoiceSubmission(reviewTarget.id, reviewNote)
+            : await reviewInvoiceSubmission(
+                reviewTarget.id,
+                reviewTarget.decision,
+                reviewNote || undefined,
+              );
+      const { error } = result;
       if (error) {
         toast.error(error);
         return;
       }
       toast.success(
-        `Invoice ${reviewTarget.decision === 'approved' ? 'approved' : 'rejected'}.`,
+        reviewTarget.decision === 'changes'
+          ? 'Changes requested.'
+          : reviewTarget.decision === 'void'
+            ? 'Invoice voided.'
+            : `Invoice ${reviewTarget.decision === 'approved' ? 'approved' : 'rejected'}.`,
       );
       setReviewDialogOpen(false);
       setReviewTarget(null);
@@ -266,11 +293,29 @@ export function InvoicesClient({
     });
   }
 
+  async function handleMarkUnderReview(id: string) {
+    startTransition(async () => {
+      const { error } = await markInvoiceUnderReview(id);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      toast.success('Invoice moved under review.');
+      router.refresh();
+      const res = await listInvoiceSubmissions(orgId, {
+        status: currentStatus === 'all' || !currentStatus ? undefined : currentStatus,
+      });
+      if (!res.error) {
+        setSubmissions(res.data);
+      }
+    });
+  }
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Invoice Submissions</CardTitle>
+          <CardTitle>Invoice Submissions ({totalCount})</CardTitle>
           {canSubmit && (
             <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
               <DialogTrigger asChild>
@@ -469,13 +514,23 @@ export function InvoicesClient({
                     <TableCell>{sub.fundName ?? '—'}</TableCell>
                     <TableCell>
                       <Badge variant={statusBadgeVariant(sub.status)}>
-                        {sub.status}
+                        {statusLabel(sub.status)}
                       </Badge>
                     </TableCell>
                     {canApprove && (
                       <TableCell>
                         <div className="flex gap-2">
-                          {sub.status === 'pending' && (
+                          {sub.status === 'submitted' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleMarkUnderReview(sub.id)}
+                              disabled={isPending}
+                            >
+                              Review
+                            </Button>
+                          )}
+                          {(sub.status === 'submitted' || sub.status === 'under_review') && (
                             <>
                               <Button
                                 size="sm"
@@ -493,9 +548,17 @@ export function InvoicesClient({
                               >
                                 Reject
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openReviewDialog(sub.id, 'changes')}
+                                disabled={isPending}
+                              >
+                                Request Changes
+                              </Button>
                             </>
                           )}
-                          {sub.status === 'approved' && (
+                          {sub.status === 'approved' && !sub.billId && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -505,7 +568,17 @@ export function InvoicesClient({
                               Convert to Bill
                             </Button>
                           )}
-                          {sub.status === 'converted' && sub.billId && (
+                          {sub.status !== 'paid' && sub.status !== 'voided' && !sub.billId && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openReviewDialog(sub.id, 'void')}
+                              disabled={isPending}
+                            >
+                              Void
+                            </Button>
+                          )}
+                          {sub.billId && (
                             <Button size="sm" variant="outline" asChild>
                               <Link href={`/bills/${sub.billId}`}>
                                 View Bill
@@ -527,14 +600,24 @@ export function InvoicesClient({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {reviewTarget?.decision === 'approved' ? 'Approve' : 'Reject'} Invoice
+              {reviewTarget?.decision === 'approved'
+                ? 'Approve'
+                : reviewTarget?.decision === 'changes'
+                  ? 'Request Changes'
+                  : reviewTarget?.decision === 'void'
+                    ? 'Void'
+                    : 'Reject'} Invoice
             </DialogTitle>
             <DialogDescription>
-              Add an optional note for this review.
+              {reviewTarget?.decision === 'changes' || reviewTarget?.decision === 'void'
+                ? 'Add a note explaining the decision.'
+                : 'Add an optional note for this review.'}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 py-2">
-            <Label htmlFor="review_note">Review Note</Label>
+            <Label htmlFor="review_note">
+              {reviewTarget?.decision === 'changes' || reviewTarget?.decision === 'void' ? 'Note *' : 'Review Note'}
+            </Label>
             <Input
               id="review_note"
               value={reviewNote}
@@ -555,7 +638,15 @@ export function InvoicesClient({
               variant={reviewTarget?.decision === 'rejected' ? 'destructive' : 'default'}
               disabled={isPending}
             >
-              {isPending ? 'Processing…' : reviewTarget?.decision === 'approved' ? 'Approve' : 'Reject'}
+              {isPending
+                ? 'Processing…'
+                : reviewTarget?.decision === 'approved'
+                  ? 'Approve'
+                  : reviewTarget?.decision === 'changes'
+                    ? 'Request Changes'
+                    : reviewTarget?.decision === 'void'
+                      ? 'Void'
+                      : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>

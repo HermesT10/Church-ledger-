@@ -1,14 +1,17 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { getTrialBalance } from '@/lib/reports/glReports';
+import { generateReportSnapshot } from '@/lib/reports/engine/service';
+import { ProfessionalReportSnapshotPanel } from '@/components/reports/professional';
 import { TrialBalanceClient } from './trial-balance-client';
 
 export default async function TrialBalancePage() {
   const { orgId } = await getActiveOrg();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [reportRes, fundsRes] = await Promise.all([
+  const [reportRes, snapshotRes, fundsRes] = await Promise.all([
     getTrialBalance({ asOfDate: today }),
+    generateReportSnapshot('trial_balance', { asOfDate: today }),
     (async () => {
       const supabase = await createClient();
       return supabase
@@ -23,10 +26,13 @@ export default async function TrialBalancePage() {
   const funds = (fundsRes.data ?? []) as { id: string; name: string }[];
 
   return (
-    <TrialBalanceClient
-      initialReport={reportRes.data}
-      funds={funds}
-      error={reportRes.error}
-    />
+    <>
+      <ProfessionalReportSnapshotPanel snapshot={snapshotRes.data} />
+      <TrialBalanceClient
+        initialReport={reportRes.data}
+        funds={funds}
+        error={reportRes.error}
+      />
+    </>
   );
 }

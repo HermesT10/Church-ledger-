@@ -74,7 +74,9 @@ export function buildBalanceSheetReport(params: {
   // 2. Split accounts by type
   const assetAccounts = accounts.filter((a) => a.type === 'asset');
   const liabilityAccounts = accounts.filter((a) => a.type === 'liability');
-  const equityAccounts = accounts.filter((a) => a.type === 'equity');
+  const equityAccounts = accounts.filter(
+    (a) => a.type === 'equity' || a.type === 'fund_balance',
+  );
 
   // 3. Build sections
   const assets = buildSection(assetAccounts, debits, credits, 'asset');

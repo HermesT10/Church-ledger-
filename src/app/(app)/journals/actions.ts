@@ -7,6 +7,8 @@ import {
   postJournal as _postJournal,
   deleteJournal as _deleteJournal,
   reverseJournal as _reverseJournal,
+  amendJournal as _amendJournal,
+  updateJournalAttachment as _updateJournalAttachment,
 } from '@/lib/journals/actions';
 
 export async function createJournal(formData: FormData) {
@@ -29,6 +31,20 @@ export async function deleteJournal(formData: FormData) {
   return _deleteJournal(formData);
 }
 
-export async function reverseJournal(journalId: string) {
-  return _reverseJournal(journalId);
+export async function updateJournalAttachment(journalId: string, attachmentUrl: string | null) {
+  return _updateJournalAttachment(journalId, attachmentUrl);
+}
+
+export async function reverseJournal(formData: FormData) {
+  const journalId = String(formData.get('journal_id') ?? '');
+  const reason = String(formData.get('reason') ?? '');
+  const reversalDate = String(formData.get('reversal_date') ?? '');
+  return _reverseJournal(journalId, reason, reversalDate);
+}
+
+export async function amendJournal(formData: FormData) {
+  const journalId = String(formData.get('journal_id') ?? '');
+  const reason = String(formData.get('reason') ?? '');
+  const reversalDate = String(formData.get('reversal_date') ?? '');
+  return _amendJournal(journalId, reason, reversalDate);
 }

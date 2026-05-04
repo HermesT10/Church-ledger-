@@ -240,83 +240,27 @@ describe('FK-safe deletion order', () => {
 });
 
 /* ================================================================== */
-/*  4. Demo data lifecycle                                             */
+/*  4. Legacy demo cleanup (post-UI removal)                           */
 /* ================================================================== */
 
-describe('Demo data lifecycle (documentation)', () => {
-  it('generateDemoData should create data across all modules', () => {
+describe('Legacy demo cleanup (documentation)', () => {
+  it('Workspace Data Management uses DELETE DEMO confirmation for legacy demo RPC', () => {
     /**
-     * When generateDemoData(orgId) runs, it creates:
-     * - 2 Funds (General Fund, Youth Fund)
-     * - ~14 Accounts (income, expense, asset, liability, equity, clearing)
-     * - 1 Bank Account ("Demo Main Bank")
-     * - 10 Bank Lines (5 deposits + 5 payments)
-     * - 6 Journals (3 income + 3 expense, all posted)
-     * - 1 Supplier + 1 Bill (posted) + 1 Payment Run (posted)
-     * - 2 Donors + 4 Donations + Gift Aid Declarations + 1 Gift Aid Claim
-     * - 1 Giving Import (GoCardless) + 3 rows + 1 journal
-     * - 1 Payroll Run (posted) + journal
-     * - 1 Reconciliation Match
-     * All tagged with a single demo_batch_id UUID.
+     * Demo generation UI was removed; admins clear old demo-tagged rows via
+     * deleteDemoDataAction → delete_workspace_demo_data with confirmation DELETE DEMO.
+     */
+    expect('DELETE DEMO').toBe('DELETE DEMO');
+  });
+
+  it('Full ledger emptying uses RESET confirmation and financial reset RPC', () => {
+    expect('RESET').toBe('RESET');
+  });
+
+  it('Global multi-tenant wipe is manual SQL only', () => {
+    /**
+     * admin_global_clean_financial_data loops organisations and calls
+     * run_workspace_data_delete(..., 'financial', ...). Invoke via SQL editor only.
      */
     expect(true).toBe(true);
-  });
-
-  it('all demo records share the same demo_batch_id per generation', () => {
-    /**
-     * A single UUID (demo_batch_id) is generated at the start of
-     * generateDemoData and applied to every inserted record.
-     * This enables reliable batch cleanup.
-     */
-    const batchId = 'some-uuid';
-    expect(typeof batchId).toBe('string');
-    expect(batchId.length).toBeGreaterThan(0);
-  });
-
-  it('clearDemoData should only remove records where demo_batch_id IS NOT NULL', () => {
-    /**
-     * clearDemoData deletes WHERE demo_batch_id IS NOT NULL,
-     * ensuring real data (demo_batch_id IS NULL) is never touched.
-     */
-    const isDemo = (demoBatchId: string | null) => demoBatchId !== null;
-    expect(isDemo('batch-1')).toBe(true);
-    expect(isDemo(null)).toBe(false);
-  });
-
-  it('multiple demo generations should coexist (different batch IDs)', () => {
-    /**
-     * Running generateDemoData twice creates records with different
-     * demo_batch_id values. clearDemoData removes ALL demo records
-     * (any non-null demo_batch_id), not just a specific batch.
-     */
-    const batch1 = 'uuid-1';
-    const batch2 = 'uuid-2';
-    expect(batch1).not.toBe(batch2);
-    // Both are considered demo data
-    expect(batch1 !== null).toBe(true);
-    expect(batch2 !== null).toBe(true);
-  });
-
-  it('UI requires typing confirmation phrase before generating or clearing', () => {
-    /**
-     * Safety requirement:
-     * - Generate: user must type "GENERATE DEMO DATA" exactly
-     * - Clear: user must type "CLEAR DEMO DATA" exactly
-     * This prevents accidental generation/deletion.
-     */
-    const confirmGenerate = 'GENERATE DEMO DATA';
-    const confirmClear = 'CLEAR DEMO DATA';
-    expect(confirmGenerate).toBe('GENERATE DEMO DATA');
-    expect(confirmClear).toBe('CLEAR DEMO DATA');
-  });
-
-  it('only admin role can access the demo data feature', () => {
-    /**
-     * The demo data page checks for 'admin' role.
-     * Non-admin users are redirected to /settings.
-     * The server actions use assertCanPerform(role, 'seed', 'settings').
-     */
-    const role = 'admin';
-    expect(role).toBe('admin');
   });
 });

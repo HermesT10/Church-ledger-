@@ -19,9 +19,10 @@ export default async function GivingPlatformsPage() {
   const supabase = await createClient();
   const { data: accounts } = await supabase
     .from('accounts')
-    .select('id, code, name, type')
+    .select('id, code, name, type, available_in_reconciliation, available_in_donations')
     .eq('organisation_id', orgId)
-    .eq('is_archived', false)
+    .eq('is_active', true)
+    .is('archived_at', null)
     .order('code');
 
   const serializedAccounts = (accounts ?? []).map((a) => ({
@@ -29,6 +30,8 @@ export default async function GivingPlatformsPage() {
     code: a.code as string,
     name: a.name as string,
     type: a.type as string,
+    available_in_reconciliation: (a.available_in_reconciliation as boolean) ?? true,
+    available_in_donations: (a.available_in_donations as boolean) ?? false,
   }));
 
   return (

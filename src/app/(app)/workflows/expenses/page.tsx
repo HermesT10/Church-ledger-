@@ -28,6 +28,7 @@ export default async function WorkflowExpensesPage({
       .eq('organisation_id', orgId)
       .eq('type', 'expense')
       .eq('is_active', true)
+      .eq('available_in_invoices', true)
       .order('code'),
   ]);
 

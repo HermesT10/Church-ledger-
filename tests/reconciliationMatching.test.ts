@@ -282,13 +282,22 @@ describe('computeClearingBalances', () => {
   });
 
   it('returns non-zero balance when payouts outstanding', () => {
+    const today = new Date();
+    const recentDonationDate = new Date(today);
+    recentDonationDate.setDate(today.getDate() - 10);
+    const recentPayoutDate = new Date(today);
+    recentPayoutDate.setDate(today.getDate() - 5);
+
+    const donationDate = recentDonationDate.toISOString().slice(0, 10);
+    const payoutDate = recentPayoutDate.toISOString().slice(0, 10);
+
     const journalLines: JournalLineInput[] = [
       // Donation: Dr Clearing 5000
-      { journal_id: 'j1', journal_date: '2026-01-15', journal_memo: 'GoCardless donations', account_id: 'clr-gc', debit_pence: 5000, credit_pence: 0 },
+      { journal_id: 'j1', journal_date: donationDate, journal_memo: 'GoCardless donations', account_id: 'clr-gc', debit_pence: 5000, credit_pence: 0 },
       // Fee: Cr Clearing 100
-      { journal_id: 'j1', journal_date: '2026-01-15', journal_memo: 'GoCardless donations', account_id: 'clr-gc', debit_pence: 0, credit_pence: 100 },
+      { journal_id: 'j1', journal_date: donationDate, journal_memo: 'GoCardless donations', account_id: 'clr-gc', debit_pence: 0, credit_pence: 100 },
       // Payout journal exists but NOT matched
-      { journal_id: 'j2', journal_date: '2026-01-20', journal_memo: 'GoCardless payout PO-001 (Import abc)', account_id: 'clr-gc', debit_pence: 0, credit_pence: 4900 },
+      { journal_id: 'j2', journal_date: payoutDate, journal_memo: 'GoCardless payout PO-001 (Import abc)', account_id: 'clr-gc', debit_pence: 0, credit_pence: 4900 },
     ];
 
     const matchedJournalIds = new Set<string>(); // nothing matched
@@ -301,7 +310,7 @@ describe('computeClearingBalances', () => {
     const gcRow = result.find((r) => r.provider === 'gocardless')!;
     expect(gcRow.balancePence).toBe(0); // 5000 - 100 - 4900 = 0 (balance is 0 even without matching because the journal entry was made)
     expect(gcRow.openPayoutCount).toBe(1); // 1 unmatched payout journal
-    expect(gcRow.oldestOpenPayoutDate).toBe('2026-01-20');
+    expect(gcRow.oldestOpenPayoutDate).toBe(payoutDate);
     expect(gcRow.status).toBe('outstanding');
   });
 

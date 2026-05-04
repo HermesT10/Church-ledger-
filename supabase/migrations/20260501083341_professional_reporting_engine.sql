@@ -1,0 +1,2 @@
+-- professional_reporting_engine
+-- Add migration SQL below (file created after local `supabase migration new` hung).

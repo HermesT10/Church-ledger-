@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -15,7 +15,6 @@ import {
   Info,
   Trash2,
   Lock,
-  FlaskConical,
   HardDrive,
   Mail,
   UserMinus,
@@ -26,7 +25,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import {
-  updateOrgName,
+  updateOrganisationProfile,
   updateOrgSettings,
   changeMemberRole,
   removeMember,
@@ -36,14 +35,13 @@ import {
   forceLogoutAll,
   setMemberExpiry,
   archiveBankAccount,
-  resetMyWorkspace,
   createDataErasureRequest,
-  listBankAccounts,
 } from './actions';
-import { sendInvite, listInvites, revokeInvite, resendInvite } from '@/lib/invites/actions';
+import { sendInvite, revokeInvite, resendInvite } from '@/lib/invites/actions';
 import type { InviteRow } from '@/lib/invites/types';
 import { ALL_ROLES, ROLE_LABELS as PERM_ROLE_LABELS } from '@/lib/permissions';
 import type { Role } from '@/lib/permissions';
+import type { OrganisationSubscription } from '@/lib/billing/types';
 import type { OrgSettings, MemberRow } from './types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,8 +83,18 @@ const SELECT_CLASS =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 const TIMEZONES = [
@@ -118,10 +126,19 @@ interface Props {
   settings: OrgSettings | null;
   members: MemberRow[];
   invites: InviteRow[];
-  bankAccounts: { id: string; name: string; account_number_last4: string | null; status: string }[];
-  liabilityAccounts: { id: string; code: string; name: string }[];
-  expenseAccounts: { id: string; code: string; name: string }[];
-  incomeAccounts: { id: string; code: string; name: string }[];
+  subscription: OrganisationSubscription | null;
+  bankAccounts: {
+    id: string;
+    name: string;
+    account_number_last4: string | null;
+    status: string;
+  }[];
+  creditorsLiabilityAccounts: { id: string; code: string; name: string }[];
+  payrollExpenseAccounts: { id: string; code: string; name: string }[];
+  payrollLiabilityAccounts: { id: string; code: string; name: string }[];
+  donationIncomeAccounts: { id: string; code: string; name: string }[];
+  donationFeeExpenseAccounts: { id: string; code: string; name: string }[];
+  giftAidBankGlAccounts: { id: string; code: string; name: string }[];
   funds: { id: string; name: string }[];
 }
 
@@ -136,10 +153,14 @@ export function SettingsClient({
   settings: initialSettings,
   members: initialMembers,
   invites: initialInvites,
+  subscription,
   bankAccounts,
-  liabilityAccounts,
-  expenseAccounts,
-  incomeAccounts,
+  creditorsLiabilityAccounts,
+  payrollExpenseAccounts,
+  payrollLiabilityAccounts,
+  donationIncomeAccounts,
+  donationFeeExpenseAccounts,
+  giftAidBankGlAccounts,
   funds,
 }: Props) {
   const router = useRouter();
@@ -147,10 +168,27 @@ export function SettingsClient({
   const isAdmin = role === 'admin';
 
   // Local state for form fields
-  const [orgName, setOrgName] = useState(initialSettings?.organisationName ?? '');
+  const [orgName, setOrgName] = useState(
+    initialSettings?.organisationName ?? ''
+  );
   const [s, setS] = useState<OrgSettings>(
     initialSettings ?? {
       organisationName: '',
+      legalName: '',
+      charityNumber: '',
+      addressLine1: '',
+      addressLine2: '',
+      city: '',
+      county: '',
+      postcode: '',
+      country: 'United Kingdom',
+      contactEmail: '',
+      contactPhone: '',
+      websiteUrl: '',
+      logoUrl: '',
+      baseCurrency: 'GBP',
+      reportBrandName: '',
+      reportFooterText: '',
       overspendAmountPence: 5000,
       overspendPercent: 20,
       fiscalYearStartMonth: 1,
@@ -179,7 +217,7 @@ export function SettingsClient({
       defaultDonationsBankAccountId: null,
       defaultDonationsFeeAccountId: null,
       receiptComplianceDays: 7,
-    },
+    }
   );
 
   const [members] = useState(initialMembers);
@@ -194,34 +232,64 @@ export function SettingsClient({
   const [inviteRole, setInviteRole] = useState<Role>('viewer');
 
   // Confirmation dialog state
-  const [removeMemberDialog, setRemoveMemberDialog] = useState<{ open: boolean; userId: string | null }>({ open: false, userId: null });
+  const [removeMemberDialog, setRemoveMemberDialog] = useState<{
+    open: boolean;
+    userId: string | null;
+  }>({ open: false, userId: null });
   const [logoutDialog, setLogoutDialog] = useState(false);
   const [showArchivedBanks, setShowArchivedBanks] = useState(false);
-  const [archiveBankDialog, setArchiveBankDialog] = useState<{ open: boolean; bankId: string | null; bankName: string }>({ open: false, bankId: null, bankName: '' });
-  const [resetWorkspaceDialog, setResetWorkspaceDialog] = useState(false);
+  const [archiveBankDialog, setArchiveBankDialog] = useState<{
+    open: boolean;
+    bankId: string | null;
+    bankName: string;
+  }>({ open: false, bankId: null, bankName: '' });
   const [erasureRequestDialog, setErasureRequestDialog] = useState(false);
   const [bankAccountsList, setBankAccountsList] = useState(bankAccounts);
-  const [erasureScope, setErasureScope] = useState<'personal' | 'church'>('personal');
+  const [erasureScope, setErasureScope] = useState<'personal' | 'church'>(
+    'personal'
+  );
   const [erasureReason, setErasureReason] = useState('');
   const [erasureConfirmInput, setErasureConfirmInput] = useState('');
 
   const [isPending, startTransition] = useTransition();
 
+  /** Avoid hydration mismatch: server vs client "now" differs by ms/s. */
+  const [lastDataRefreshDisplay, setLastDataRefreshDisplay] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    queueMicrotask(() => {
+      setLastDataRefreshDisplay(new Date().toLocaleString('en-GB'));
+    });
+  }, []);
+
   /* ---- Save helpers ---- */
   const saveOrgName = () => {
     startTransition(async () => {
-      const { error } = await updateOrgName(orgId, orgName);
+      const { error } = await updateOrganisationProfile(orgId, {
+        name: orgName,
+        legal_name: s.legalName,
+        charity_number: s.charityNumber,
+        address_line1: s.addressLine1,
+        address_line2: s.addressLine2,
+        city: s.city,
+        county: s.county,
+        postcode: s.postcode,
+        country: s.country,
+        contact_email: s.contactEmail,
+        contact_phone: s.contactPhone,
+        website_url: s.websiteUrl,
+        logo_url: s.logoUrl,
+      });
       if (error) toast.error(error);
       else {
-        toast.success('Organisation name updated.');
+        toast.success('Organisation profile updated.');
         router.refresh();
       }
     });
   };
 
-  const saveOrgSettings = (
-    fields: Parameters<typeof updateOrgSettings>[1],
-  ) => {
+  const saveOrgSettings = (fields: Parameters<typeof updateOrgSettings>[1]) => {
     startTransition(async () => {
       const { error } = await updateOrgSettings(orgId, fields);
       if (error) toast.error(error);
@@ -269,7 +337,11 @@ export function SettingsClient({
 
   const handleSendInvite = () => {
     startTransition(async () => {
-      const { data, error } = await sendInvite({ orgId, email: inviteEmail, role: inviteRole });
+      const { data, error } = await sendInvite({
+        orgId,
+        email: inviteEmail,
+        role: inviteRole,
+      });
       if (error) toast.error(error);
       else {
         toast.success(`Invite sent to ${inviteEmail}.`);
@@ -364,31 +436,27 @@ export function SettingsClient({
         toast.success('Bank account archived.');
         setBankAccountsList((prev) =>
           prev.map((b) =>
-            b.id === archiveBankDialog.bankId ? { ...b, status: 'archived' as const } : b,
-          ),
+            b.id === archiveBankDialog.bankId
+              ? { ...b, status: 'archived' as const }
+              : b
+          )
         );
         router.refresh();
       }
     });
   };
 
-  const confirmResetWorkspace = () => {
-    startTransition(async () => {
-      const { error } = await resetMyWorkspace();
-      if (error) toast.error(error);
-      else {
-        toast.success('Workspace reset. Your preferences have been restored to defaults.');
-        setResetWorkspaceDialog(false);
-      }
-    });
-  };
-
   const confirmErasureRequest = () => {
     startTransition(async () => {
-      const { error } = await createDataErasureRequest(erasureScope, erasureReason || undefined);
+      const { error } = await createDataErasureRequest(
+        erasureScope,
+        erasureReason || undefined
+      );
       if (error) toast.error(error);
       else {
-        toast.success('Data erasure request submitted. An admin will review it.');
+        toast.success(
+          'Data erasure request submitted. An admin will review it.'
+        );
         setErasureRequestDialog(false);
         setErasureScope('personal');
         setErasureReason('');
@@ -397,7 +465,9 @@ export function SettingsClient({
     });
   };
 
-  const activeBankAccounts = bankAccountsList.filter((b) => b.status === 'active');
+  const activeBankAccounts = bankAccountsList.filter(
+    (b) => b.status === 'active'
+  );
   const displayedBankAccounts = showArchivedBanks
     ? bankAccountsList
     : bankAccountsList.filter((b) => b.status === 'active');
@@ -405,25 +475,26 @@ export function SettingsClient({
   /* ---- Render ---- */
   return (
     <>
-      {isPending && (
-        <p className="text-sm text-muted-foreground">Saving...</p>
-      )}
+      {isPending && <p className="text-sm text-muted-foreground">Saving...</p>}
 
       {/* ============================================================ */}
       {/*  12-column grid: flat children for correct mobile ordering    */}
       {/* ============================================================ */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-
         {/* ==== 1. Organisation Settings  (left col, order-1 mobile) ==== */}
         <Card className="order-1 md:col-span-8 rounded-2xl shadow-sm">
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Settings size={18} className="text-muted-foreground" />
-                <CardTitle className="text-base">Organisation Settings</CardTitle>
+                <CardTitle className="text-base">
+                  Organisation Settings
+                </CardTitle>
               </div>
             </div>
-            <CardDescription>Basic organisation details and preferences.</CardDescription>
+            <CardDescription>
+              Basic organisation details and preferences.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Org name */}
@@ -444,21 +515,159 @@ export function SettingsClient({
               </div>
             </div>
 
-            {/* Logo placeholder */}
-            <div className="space-y-1.5">
-              <Label>Logo</Label>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center text-muted-foreground text-xs">
-                  Logo
-                </div>
-                <Badge variant="secondary" className="text-xs">Coming soon</Badge>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Legal Name</Label>
+                <Input
+                  value={s.legalName}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, legalName: e.target.value })}
+                  placeholder="Registered charity or legal entity name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Charity Number</Label>
+                <Input
+                  value={s.charityNumber}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    setS({ ...s, charityNumber: e.target.value })
+                  }
+                  placeholder="Optional charity registration number"
+                />
               </div>
             </div>
 
-            {/* Currency */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Contact Email</Label>
+                <Input
+                  type="email"
+                  value={s.contactEmail}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, contactEmail: e.target.value })}
+                  placeholder="finance@church.org"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Contact Phone</Label>
+                <Input
+                  value={s.contactPhone}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, contactPhone: e.target.value })}
+                  placeholder="Main finance contact number"
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
-              <Label>Default Currency</Label>
-              <Input value="GBP (£)" disabled />
+              <Label>Website</Label>
+              <Input
+                value={s.websiteUrl}
+                disabled={!canEdit}
+                onChange={(e) => setS({ ...s, websiteUrl: e.target.value })}
+                placeholder="https://yourchurch.org"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Logo URL</Label>
+              <Input
+                value={s.logoUrl}
+                disabled={!canEdit}
+                onChange={(e) => setS({ ...s, logoUrl: e.target.value })}
+                placeholder="Hosted image URL for exported documents"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Address Line 1</Label>
+                <Input
+                  value={s.addressLine1}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, addressLine1: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Address Line 2</Label>
+                <Input
+                  value={s.addressLine2}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, addressLine2: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Town / City</Label>
+                <Input
+                  value={s.city}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, city: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>County / Region</Label>
+                <Input
+                  value={s.county}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, county: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Postcode</Label>
+                <Input
+                  value={s.postcode}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, postcode: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Country</Label>
+                <Input
+                  value={s.country}
+                  disabled={!canEdit}
+                  onChange={(e) => setS({ ...s, country: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Default Currency</Label>
+                <select
+                  className={SELECT_CLASS}
+                  value={s.baseCurrency}
+                  disabled={!canEdit}
+                  onChange={(e) => {
+                    setS({ ...s, baseCurrency: e.target.value });
+                    saveOrgSettings({ base_currency: e.target.value });
+                  }}
+                >
+                  <option value="GBP">GBP (£)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Report Brand Name</Label>
+                <Input
+                  value={s.reportBrandName}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    setS({ ...s, reportBrandName: e.target.value })
+                  }
+                  onBlur={() =>
+                    saveOrgSettings({ report_brand_name: s.reportBrandName })
+                  }
+                  placeholder="Optional export/display name"
+                />
+              </div>
             </div>
 
             {/* Fiscal Year Start */}
@@ -475,7 +684,9 @@ export function SettingsClient({
                 }}
               >
                 {MONTH_NAMES.map((m, i) => (
-                  <option key={i + 1} value={i + 1}>{m}</option>
+                  <option key={i + 1} value={i + 1}>
+                    {m}
+                  </option>
                 ))}
               </select>
             </div>
@@ -493,7 +704,9 @@ export function SettingsClient({
                 }}
               >
                 {TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz}>{tz}</option>
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
                 ))}
               </select>
             </div>
@@ -514,19 +727,117 @@ export function SettingsClient({
                 <option value="MM/DD/YYYY">MM/DD/YYYY</option>
               </select>
             </div>
+
+            <div className="space-y-1.5">
+              <Label>Report Footer</Label>
+              <Input
+                value={s.reportFooterText}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  setS({ ...s, reportFooterText: e.target.value })
+                }
+                onBlur={() =>
+                  saveOrgSettings({ report_footer_text: s.reportFooterText })
+                }
+                placeholder="Optional footer text for exported reports"
+              />
+            </div>
+
+            {canEdit && (
+              <div className="flex justify-end">
+                <Button size="sm" onClick={saveOrgName} disabled={isPending}>
+                  Save Organisation Profile
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* ==== 2. Team & Roles  (right col, order-2 mobile) ==== */}
         <Card className="order-2 md:col-span-4 rounded-2xl shadow-sm">
+          <CardHeader className="p-6 pb-0">
+            <div className="flex items-center gap-2">
+              <Landmark size={18} className="text-muted-foreground" />
+              <CardTitle className="text-base">
+                Billing & Subscription
+              </CardTitle>
+            </div>
+            <CardDescription>
+              Commercial readiness scaffold for plan, seats, and support status.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 pt-4 space-y-4">
+            <div className="rounded-xl border bg-muted/30 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    {subscription?.plan?.name ?? 'Starter'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Status: {subscription?.status ?? 'trial'}
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {subscription?.seatCount ?? members.length} seats in use
+                </Badge>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {subscription?.plan?.description ??
+                  'This workspace is ready for Stripe-backed billing once commercial plans are activated.'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Entitlements
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(subscription?.features.length
+                  ? subscription.features
+                  : [
+                      { code: 'reports', enabled: true, limitValue: null },
+                      { code: 'branding', enabled: true, limitValue: null },
+                      {
+                        code: 'support_console',
+                        enabled: false,
+                        limitValue: null,
+                      },
+                    ]
+                ).map((feature) => (
+                  <Badge
+                    key={feature.code}
+                    variant={feature.enabled ? 'secondary' : 'outline'}
+                    className="text-[10px]"
+                  >
+                    {feature.code.replace(/_/g, ' ')}
+                    {typeof feature.limitValue === 'number'
+                      ? ` (${feature.limitValue})`
+                      : ''}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-dashed p-4 text-xs text-muted-foreground">
+              Billing automation is scaffolded in the database and docs. Enable
+              a Stripe webhook + checkout flow next when you are ready to charge
+              organisations.
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ==== 3. Users & Access  (right col, order-3 mobile) ==== */}
+        <Card className="order-3 md:col-span-4 rounded-2xl shadow-sm">
           <CardHeader className="p-6 pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users size={18} className="text-muted-foreground" />
-                <CardTitle className="text-base">Team & Roles</CardTitle>
+                <CardTitle className="text-base">Users & Access</CardTitle>
               </div>
               {isAdmin && (
-                <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+                <Dialog
+                  open={inviteDialogOpen}
+                  onOpenChange={setInviteDialogOpen}
+                >
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm">
                       <Mail size={14} className="mr-1.5" />
@@ -537,7 +848,8 @@ export function SettingsClient({
                     <DialogHeader>
                       <DialogTitle>Invite User</DialogTitle>
                       <DialogDescription>
-                        Send an invitation email. The user will be added to your organisation when they accept.
+                        Send an invitation email. The user will be added to your
+                        organisation when they accept.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
@@ -555,10 +867,14 @@ export function SettingsClient({
                         <select
                           className={SELECT_CLASS}
                           value={inviteRole}
-                          onChange={(e) => setInviteRole(e.target.value as Role)}
+                          onChange={(e) =>
+                            setInviteRole(e.target.value as Role)
+                          }
                         >
                           {ALL_ROLES.filter((r) => r !== 'admin').map((r) => (
-                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                            <option key={r} value={r}>
+                              {ROLE_LABELS[r]}
+                            </option>
                           ))}
                         </select>
                         <p className="text-xs text-muted-foreground">
@@ -567,7 +883,11 @@ export function SettingsClient({
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button variant="outline" size="sm" onClick={() => setInviteDialogOpen(false)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setInviteDialogOpen(false)}
+                      >
                         Cancel
                       </Button>
                       <Button
@@ -583,7 +903,9 @@ export function SettingsClient({
                 </Dialog>
               )}
             </div>
-            <CardDescription>Manage team members and permissions.</CardDescription>
+            <CardDescription>
+              Manage active, invited, disabled, and removed workspace access.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Active Members Table */}
@@ -594,26 +916,41 @@ export function SettingsClient({
                     <TableHead>User</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    {isAdmin && <TableHead className="text-right">Actions</TableHead>}
+                    {isAdmin && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {members.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isAdmin ? 4 : 3} className="text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={isAdmin ? 4 : 3}
+                        className="text-center text-muted-foreground"
+                      >
                         No members found.
                       </TableCell>
                     </TableRow>
                   ) : (
                     members.map((m) => (
-                      <TableRow key={m.userId} className={m.status === 'disabled' ? 'opacity-50' : ''}>
+                      <TableRow
+                        key={m.userId}
+                        className={
+                          m.status === 'disabled' || m.status === 'removed'
+                            ? 'opacity-50'
+                            : ''
+                        }
+                      >
                         <TableCell>
                           <div>
                             <p className="font-medium text-sm">
                               {m.fullName ?? 'Unknown'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {m.email ?? (m.userId === currentUserId ? '(You)' : m.userId.slice(0, 8) + '...')}
+                              {m.email ??
+                                (m.userId === currentUserId
+                                  ? '(You)'
+                                  : m.userId.slice(0, 8) + '...')}
                             </p>
                           </div>
                         </TableCell>
@@ -627,7 +964,9 @@ export function SettingsClient({
                               }
                             >
                               {ALL_ROLES.map((r) => (
-                                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                                <option key={r} value={r}>
+                                  {ROLE_LABELS[r]}
+                                </option>
                               ))}
                             </select>
                           ) : (
@@ -641,18 +980,30 @@ export function SettingsClient({
                                 <input
                                   type="date"
                                   className="h-7 rounded-md border border-input bg-transparent px-2 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                  value={m.expiresAt ? m.expiresAt.slice(0, 10) : ''}
+                                  value={
+                                    m.expiresAt ? m.expiresAt.slice(0, 10) : ''
+                                  }
                                   onChange={(e) => {
                                     const val = e.target.value;
                                     handleSetExpiry(
                                       m.userId,
-                                      val ? new Date(val + 'T23:59:59Z').toISOString() : null,
+                                      val
+                                        ? new Date(
+                                            val + 'T23:59:59Z'
+                                          ).toISOString()
+                                        : null
                                     );
                                   }}
                                 />
                               ) : m.expiresAt ? (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Expires {new Date(m.expiresAt).toLocaleDateString('en-GB')}
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  Expires{' '}
+                                  {new Date(m.expiresAt).toLocaleDateString(
+                                    'en-GB'
+                                  )}
                                 </Badge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
@@ -664,7 +1015,9 @@ export function SettingsClient({
                                   variant="ghost"
                                   size="sm"
                                   className="h-6 px-2 text-xs"
-                                  onClick={() => handleSetExpiry(m.userId, null)}
+                                  onClick={() =>
+                                    handleSetExpiry(m.userId, null)
+                                  }
                                 >
                                   Clear
                                 </Button>
@@ -675,9 +1028,11 @@ export function SettingsClient({
                         <TableCell>
                           <Badge
                             variant={
-                              m.status === 'active' ? 'default' :
-                              m.status === 'disabled' ? 'destructive' :
-                              'secondary'
+                              m.status === 'active'
+                                ? 'default'
+                                : m.status === 'disabled'
+                                  ? 'destructive'
+                                  : 'secondary'
                             }
                             className="text-[10px]"
                           >
@@ -693,8 +1048,10 @@ export function SettingsClient({
                                     variant="ghost"
                                     size="sm"
                                     title="Disable user"
-                                    onClick={() => handleDisableMember(m.userId)}
-                                    className="text-amber-600 hover:text-amber-700"
+                                    onClick={() =>
+                                      handleDisableMember(m.userId)
+                                    }
+                                    className="text-warning hover:text-warning/80"
                                   >
                                     <UserMinus size={14} />
                                   </Button>
@@ -710,15 +1067,17 @@ export function SettingsClient({
                                     <UserCheck size={14} />
                                   </Button>
                                 )}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  title="Remove member"
-                                  onClick={() => handleRemoveMember(m.userId)}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
+                                {m.status !== 'removed' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    title="Remove from organisation"
+                                    onClick={() => handleRemoveMember(m.userId)}
+                                    className="text-destructive hover:text-destructive"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                )}
                               </div>
                             )}
                           </TableCell>
@@ -754,7 +1113,9 @@ export function SettingsClient({
                             </Badge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {new Date(inv.expiresAt).toLocaleDateString('en-GB')}
+                            {new Date(inv.expiresAt).toLocaleDateString(
+                              'en-GB'
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -798,7 +1159,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Accounting Settings</CardTitle>
               </div>
             </div>
-            <CardDescription>Default accounts, thresholds, and accounting rules.</CardDescription>
+            <CardDescription>
+              Default accounts, thresholds, and accounting rules.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Default bank account */}
@@ -816,7 +1179,9 @@ export function SettingsClient({
               >
                 <option value="">None</option>
                 {activeBankAccounts.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -835,8 +1200,10 @@ export function SettingsClient({
                 }}
               >
                 <option value="">None</option>
-                {liabilityAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                {creditorsLiabilityAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -899,7 +1266,9 @@ export function SettingsClient({
             {/* Toggle: require fund on journal lines */}
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">Require Fund on Journal Lines</p>
+                <p className="text-sm font-medium">
+                  Require Fund on Journal Lines
+                </p>
                 <p className="text-xs text-muted-foreground">
                   When enabled, every journal line must have a fund assigned.
                 </p>
@@ -918,12 +1287,16 @@ export function SettingsClient({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div>
-                  <p className="text-sm font-medium">Lock Posting After Month Close</p>
+                  <p className="text-sm font-medium">
+                    Lock Posting After Month Close
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Prevent posting journals to closed months.
                   </p>
                 </div>
-                <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  Coming soon
+                </Badge>
               </div>
               <Switch checked={false} disabled />
             </div>
@@ -939,7 +1312,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Payroll Accounts</CardTitle>
               </div>
             </div>
-            <CardDescription>Map expense and liability accounts for payroll journal generation.</CardDescription>
+            <CardDescription>
+              Map expense and liability accounts for payroll journal generation.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -957,8 +1332,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {expenseAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollExpenseAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -975,8 +1352,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {expenseAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollExpenseAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -993,8 +1372,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {expenseAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollExpenseAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1012,8 +1393,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {liabilityAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollLiabilityAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1030,8 +1413,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {liabilityAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollLiabilityAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1048,8 +1433,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {liabilityAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {payrollLiabilityAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1066,7 +1453,10 @@ export function SettingsClient({
                 <CardTitle className="text-base">Gift Aid Accounts</CardTitle>
               </div>
             </div>
-            <CardDescription>Map accounts for Gift Aid GL posting when HMRC payments are recorded.</CardDescription>
+            <CardDescription>
+              Map accounts for Gift Aid GL posting when HMRC payments are
+              recorded.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1083,8 +1473,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {incomeAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {donationIncomeAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1101,15 +1493,15 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {/* Bank accounts are actually account rows with type=asset, referenced via bank_accounts table */}
-                  {/* We use incomeAccounts here but for bank we need all accounts — use liabilityAccounts + expenseAccounts as fallback */}
-                  {/* Actually, we should list all active accounts for bank selection */}
-                  {[...liabilityAccounts, ...expenseAccounts, ...incomeAccounts].map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {giftAidBankGlAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  Select the GL account representing your bank for Gift Aid receipts.
+                  Select the GL account representing your bank for Gift Aid
+                  receipts.
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -1126,20 +1518,25 @@ export function SettingsClient({
                 >
                   <option value="">None (no fund)</option>
                   {funds.map((f) => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  Used when proportional allocation is disabled or donations have no fund.
+                  Used when proportional allocation is disabled or donations
+                  have no fund.
                 </p>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">Proportional Fund Allocation</p>
+                <p className="text-sm font-medium">
+                  Proportional Fund Allocation
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  When enabled, Gift Aid income is split proportionally across funds
-                  based on the original donation fund allocation.
+                  When enabled, Gift Aid income is split proportionally across
+                  funds based on the original donation fund allocation.
                 </p>
               </div>
               <Switch
@@ -1163,7 +1560,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Donations Accounts</CardTitle>
               </div>
             </div>
-            <CardDescription>Map default accounts for donation GL posting.</CardDescription>
+            <CardDescription>
+              Map default accounts for donation GL posting.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1180,8 +1579,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {incomeAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {donationIncomeAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
@@ -1202,7 +1603,9 @@ export function SettingsClient({
                 >
                   <option value="">None</option>
                   {activeBankAccounts.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
@@ -1222,8 +1625,10 @@ export function SettingsClient({
                   }}
                 >
                   <option value="">None</option>
-                  {expenseAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  {donationFeeExpenseAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
@@ -1244,7 +1649,10 @@ export function SettingsClient({
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="show-archived" className="text-xs font-normal text-muted-foreground">
+                  <Label
+                    htmlFor="show-archived"
+                    className="text-xs font-normal text-muted-foreground"
+                  >
                     Show archived
                   </Label>
                   <Switch
@@ -1260,7 +1668,10 @@ export function SettingsClient({
                 </Link>
               </div>
             </div>
-            <CardDescription>Manage bank accounts. Archiving preserves transaction history for reporting.</CardDescription>
+            <CardDescription>
+              Manage bank accounts. Archiving preserves transaction history for
+              reporting.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4">
             <div className="rounded-md border overflow-x-auto">
@@ -1270,14 +1681,21 @@ export function SettingsClient({
                     <TableHead>Name</TableHead>
                     <TableHead>Last 4</TableHead>
                     <TableHead>Status</TableHead>
-                    {canEdit && <TableHead className="text-right">Actions</TableHead>}
+                    {canEdit && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {displayedBankAccounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canEdit ? 4 : 3} className="text-center text-muted-foreground py-8">
-                        {showArchivedBanks ? 'No bank accounts.' : 'No active bank accounts.'}
+                      <TableCell
+                        colSpan={canEdit ? 4 : 3}
+                        className="text-center text-muted-foreground py-8"
+                      >
+                        {showArchivedBanks
+                          ? 'No bank accounts.'
+                          : 'No active bank accounts.'}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1285,26 +1703,44 @@ export function SettingsClient({
                       <TableRow key={b.id}>
                         <TableCell className="font-medium">{b.name}</TableCell>
                         <TableCell className="text-muted-foreground font-mono text-sm">
-                          {b.account_number_last4 ? `****${b.account_number_last4}` : '—'}
+                          {b.account_number_last4
+                            ? `****${b.account_number_last4}`
+                            : '—'}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={b.status === 'archived' ? 'secondary' : 'default'} className="text-[10px]">
+                          <Badge
+                            variant={
+                              b.status === 'archived' ? 'secondary' : 'default'
+                            }
+                            className="text-[10px]"
+                          >
                             {b.status}
                           </Badge>
                         </TableCell>
                         {canEdit && (
                           <TableCell className="text-right">
-                            {b.status === 'active' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => handleArchiveBank(b.id, b.name)}
-                              >
-                                <Trash2 size={14} className="mr-1" />
-                                Remove
-                              </Button>
-                            )}
+                            <div className="flex justify-end gap-1">
+                              {b.status === 'active' && (
+                                <Button asChild variant="ghost" size="sm">
+                                  <Link href={`/banking/${b.id}?tab=overview`}>
+                                    Card colour
+                                  </Link>
+                                </Button>
+                              )}
+                              {b.status === 'active' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() =>
+                                    handleArchiveBank(b.id, b.name)
+                                  }
+                                >
+                                  <Trash2 size={14} className="mr-1" />
+                                  Remove
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -1323,29 +1759,39 @@ export function SettingsClient({
               <AlertTriangle size={18} className="text-muted-foreground" />
               <CardTitle className="text-base">Data Controls</CardTitle>
             </div>
-            <CardDescription>Reset your workspace or request data erasure.</CardDescription>
+            <CardDescription>
+              Manage clean-slate resets, demo cleanup, and erasure requests.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-6">
-            <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 p-4">
               <div>
-                <p className="text-sm font-medium">Reset my workspace</p>
+                <p className="text-sm font-medium">Workspace Data Management</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Restore your preferences (theme, landing page, date format) to defaults. Does not affect shared organisation data.
+                  Delete demo data or reset all financial data, including bank
+                  accounts, accounts, funds, transactions, and setup progress.
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setResetWorkspaceDialog(true)}>
-                <RotateCcw size={14} className="mr-1.5" />
-                Reset
-              </Button>
+              <Link href="/settings/data-management">
+                <Button variant="destructive" size="sm">
+                  <RotateCcw size={14} className="mr-1.5" />
+                  Manage Reset
+                </Button>
+              </Link>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div>
                 <p className="text-sm font-medium">Request data erasure</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Submit a request for personal or organisation-wide data deletion. An admin will review and process it.
+                  Submit a request for personal or organisation-wide data
+                  deletion. An admin will review and process it.
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setErasureRequestDialog(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setErasureRequestDialog(true)}
+              >
                 <AlertTriangle size={14} className="mr-1.5" />
                 Request Erasure
               </Button>
@@ -1371,7 +1817,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Notifications</CardTitle>
               </div>
             </div>
-            <CardDescription>Control email and alert preferences.</CardDescription>
+            <CardDescription>
+              Control email and alert preferences.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -1436,7 +1884,9 @@ export function SettingsClient({
           </CardHeader>
           <CardContent className="p-6 space-y-4">
             <div>
-              <label className="text-sm font-medium">Receipt Compliance Days</label>
+              <label className="text-sm font-medium">
+                Receipt Compliance Days
+              </label>
               <p className="text-xs text-muted-foreground mb-2">
                 Number of days before a missing receipt is flagged as late.
               </p>
@@ -1447,11 +1897,16 @@ export function SettingsClient({
                 value={s.receiptComplianceDays}
                 disabled={!canEdit}
                 onChange={(e) => {
-                  const val = Math.min(90, Math.max(1, parseInt(e.target.value) || 7));
+                  const val = Math.min(
+                    90,
+                    Math.max(1, parseInt(e.target.value) || 7)
+                  );
                   setS({ ...s, receiptComplianceDays: val });
                 }}
                 onBlur={() => {
-                  saveOrgSettings({ receipt_compliance_days: s.receiptComplianceDays });
+                  saveOrgSettings({
+                    receipt_compliance_days: s.receiptComplianceDays,
+                  });
                 }}
                 className="w-28"
               />
@@ -1468,7 +1923,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Budget Settings</CardTitle>
               </div>
             </div>
-            <CardDescription>Budget configuration and preferences.</CardDescription>
+            <CardDescription>
+              Budget configuration and preferences.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Active budget year */}
@@ -1482,7 +1939,9 @@ export function SettingsClient({
               <Label>Budget Mode</Label>
               <div className="flex items-center gap-2">
                 <Input value="Monthly" disabled />
-                <Badge variant="secondary" className="text-[10px] shrink-0">V1</Badge>
+                <Badge variant="secondary" className="text-[10px] shrink-0">
+                  V1
+                </Badge>
               </div>
             </div>
 
@@ -1515,7 +1974,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">Security</CardTitle>
               </div>
             </div>
-            <CardDescription>Password, sessions, and authentication.</CardDescription>
+            <CardDescription>
+              Password, sessions, and authentication.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-4">
             {/* Change password */}
@@ -1580,7 +2041,9 @@ export function SettingsClient({
                   Manage your login sessions.
                 </p>
               </div>
-              <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+              <Badge variant="secondary" className="text-[10px]">
+                Coming soon
+              </Badge>
             </div>
 
             {/* Force logout */}
@@ -1610,7 +2073,9 @@ export function SettingsClient({
                     Extra security layer.
                   </p>
                 </div>
-                <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  Coming soon
+                </Badge>
               </div>
               <Switch checked={false} disabled />
             </div>
@@ -1626,9 +2091,26 @@ export function SettingsClient({
                 <CardTitle className="text-base">Data & Exports</CardTitle>
               </div>
             </div>
-            <CardDescription>Export your data for backup or analysis.</CardDescription>
+            <CardDescription>
+              Export your data for backup or analysis.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Workspace Data Management</p>
+                <p className="text-xs text-muted-foreground">
+                  Preview and safely delete demo data or reset financial
+                  workspace data.
+                </p>
+              </div>
+              <Link href="/settings/data-management">
+                <Button variant="outline" size="sm">
+                  Manage Data
+                </Button>
+              </Link>
+            </div>
+
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">Export All Data (CSV)</p>
@@ -1637,7 +2119,9 @@ export function SettingsClient({
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  Coming soon
+                </Badge>
                 <Button variant="outline" size="sm" disabled>
                   Export
                 </Button>
@@ -1648,7 +2132,8 @@ export function SettingsClient({
               <div>
                 <p className="text-sm font-medium">Audit Log</p>
                 <p className="text-xs text-muted-foreground">
-                  View a record of all significant actions taken in your organisation.
+                  View a record of all significant actions taken in your
+                  organisation.
                 </p>
               </div>
               <Link href="/settings/audit-log">
@@ -1660,7 +2145,10 @@ export function SettingsClient({
 
             <div className="flex items-center justify-between">
               <div className="flex items-start gap-2">
-                <HardDrive size={16} className="text-muted-foreground mt-0.5 shrink-0" />
+                <HardDrive
+                  size={16}
+                  className="text-muted-foreground mt-0.5 shrink-0"
+                />
                 <div>
                   <p className="text-sm font-medium">Database Backups</p>
                   <p className="text-xs text-muted-foreground">
@@ -1683,33 +2171,6 @@ export function SettingsClient({
           </CardContent>
         </Card>
 
-        {/* ==== Demo Data (admin only) ==== */}
-        {role === 'admin' && (
-          <Card className="order-8 md:col-span-4 rounded-2xl shadow-sm">
-            <CardHeader className="p-6 pb-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FlaskConical size={18} className="text-muted-foreground" />
-                  <CardTitle className="text-base">Demo Data</CardTitle>
-                </div>
-              </div>
-              <CardDescription>Generate or clear demo data for testing.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6 pt-4 space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Create realistic sample records across all modules to test reports,
-                reconciliation, and workflows. All demo records are tagged and can
-                be removed without affecting real data.
-              </p>
-              <Link href="/settings/demo-data">
-                <Button variant="outline" size="sm">
-                  Manage Demo Data
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        )}
-
         {/* ==== 8. System Info  (right col, order-8 mobile) ==== */}
         <Card className="order-8 md:col-span-4 rounded-2xl shadow-sm">
           <CardHeader className="p-6 pb-0">
@@ -1719,7 +2180,9 @@ export function SettingsClient({
                 <CardTitle className="text-base">System Info</CardTitle>
               </div>
             </div>
-            <CardDescription>Application and environment details.</CardDescription>
+            <CardDescription>
+              Application and environment details.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 pt-4">
             <div className="grid grid-cols-1 gap-y-3 text-sm">
@@ -1736,16 +2199,16 @@ export function SettingsClient({
                 </p>
               </div>
               <div>
-                <p className="text-muted-foreground text-xs">Last Data Refresh</p>
-                <p className="font-medium">
-                  {new Date().toLocaleString('en-GB')}
+                <p className="text-muted-foreground text-xs">
+                  Last Data Refresh
                 </p>
+                <p className="font-medium">{lastDataRefreshDisplay ?? '—'}</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Support</p>
                 <a
                   href="mailto:support@churchledger.app"
-                  className="font-medium text-blue-600 hover:underline"
+                  className="font-medium text-primary hover:underline"
                 >
                   support@churchledger.app
                 </a>
@@ -1753,17 +2216,18 @@ export function SettingsClient({
             </div>
           </CardContent>
         </Card>
-
       </div>
 
       {/* Confirmation Dialogs */}
       <ConfirmDestructiveDialog
         open={removeMemberDialog.open}
-        onOpenChange={(open) => setRemoveMemberDialog({ ...removeMemberDialog, open })}
-        title="Remove Member"
-        description="Are you sure you want to remove this member from the organisation? This action cannot be undone."
-        confirmPhrase={isProduction() ? 'REMOVE' : undefined}
-        confirmLabel="Remove Member"
+        onOpenChange={(open) =>
+          setRemoveMemberDialog({ ...removeMemberDialog, open })
+        }
+        title="Remove user from organisation"
+        description="This removes access to this organisation only. Historical accounting records are preserved, and the user's Supabase login is not deleted."
+        confirmPhrase={isProduction() ? 'REMOVE USER' : undefined}
+        confirmLabel="Remove user"
         onConfirm={confirmRemoveMember}
         isPending={isPending}
       />
@@ -1781,7 +2245,13 @@ export function SettingsClient({
 
       <ConfirmDestructiveDialog
         open={archiveBankDialog.open}
-        onOpenChange={(open) => setArchiveBankDialog(open ? archiveBankDialog : { open: false, bankId: null, bankName: '' })}
+        onOpenChange={(open) =>
+          setArchiveBankDialog(
+            open
+              ? archiveBankDialog
+              : { open: false, bankId: null, bankName: '' }
+          )
+        }
         title="Remove bank account"
         description={`This will archive "${archiveBankDialog.bankName}". Transactions will be preserved for reporting. You can view archived accounts by toggling "Show archived" above.`}
         confirmPhrase="REMOVE"
@@ -1790,23 +2260,20 @@ export function SettingsClient({
         isPending={isPending}
       />
 
-      <ConfirmDestructiveDialog
-        open={resetWorkspaceDialog}
-        onOpenChange={setResetWorkspaceDialog}
-        title="Reset my workspace"
-        description="This will restore your theme, default landing page, date format, and number format to defaults. Shared organisation data is not affected."
-        confirmPhrase="RESET"
-        confirmLabel="Reset"
-        onConfirm={confirmResetWorkspace}
-        isPending={isPending}
-      />
-
-      <Dialog open={erasureRequestDialog} onOpenChange={(open) => { setErasureRequestDialog(open); if (!open) setErasureConfirmInput(''); }}>
+      <Dialog
+        open={erasureRequestDialog}
+        onOpenChange={(open) => {
+          setErasureRequestDialog(open);
+          if (!open) setErasureConfirmInput('');
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Request data erasure</DialogTitle>
             <DialogDescription>
-              Submit a request for data deletion. An admin will review and process it. Personal scope: your profile and preferences. Church scope: all organisation data (admin/treasurer only).
+              Submit a request for data deletion. An admin will review and
+              process it. Personal scope: your profile and preferences. Church
+              scope: all organisation data (admin/treasurer only).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1815,11 +2282,15 @@ export function SettingsClient({
               <select
                 className={SELECT_CLASS + ' w-full'}
                 value={erasureScope}
-                onChange={(e) => setErasureScope(e.target.value as 'personal' | 'church')}
+                onChange={(e) =>
+                  setErasureScope(e.target.value as 'personal' | 'church')
+                }
                 disabled={!canEdit}
               >
                 <option value="personal">Personal (my data only)</option>
-                {canEdit && <option value="church">Church (entire organisation)</option>}
+                {canEdit && (
+                  <option value="church">Church (entire organisation)</option>
+                )}
               </select>
             </div>
             <div className="space-y-1.5">
@@ -1841,7 +2312,10 @@ export function SettingsClient({
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setErasureRequestDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setErasureRequestDialog(false)}
+            >
               Cancel
             </Button>
             <Button

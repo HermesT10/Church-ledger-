@@ -5,6 +5,7 @@ import {
   getFundDetailStats,
   getFundAccountBreakdown,
   getFundTransactions,
+  getFundAuditTrail,
 } from '@/lib/funds/actions';
 import { FUND_TYPE_LABELS } from '@/lib/funds/types';
 import { FundDetailClient } from './fund-detail-client';
@@ -14,12 +15,20 @@ export default async function FundDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string; from?: string; to?: string; page?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+    tab?: string;
+  }>;
 }) {
   const { role } = await getActiveOrg();
   const { id } = await params;
   const sp = await searchParams;
   const canEdit = role === 'admin' || role === 'treasurer';
+  const auditOk = role === 'admin' || role === 'treasurer';
+  const tab = sp.tab ?? 'overview';
 
   const fund = await getFund(id);
   if (!fund) notFound();
@@ -48,10 +57,11 @@ export default async function FundDetailPage({
 
   const currentPage = parseInt(sp.page ?? '1', 10);
 
-  const [statsResult, breakdownResult, txnResult] = await Promise.all([
+  const [statsResult, breakdownResult, txnResult, auditResolved] = await Promise.all([
     getFundDetailStats(id, startDate, endDate),
     getFundAccountBreakdown(id, startDate, endDate),
     getFundTransactions(id, startDate, endDate, currentPage, 25),
+    auditOk ? getFundAuditTrail(id, 75) : Promise.resolve({ data: [], error: null }),
   ]);
 
   // Split breakdown into income and expense
@@ -72,6 +82,17 @@ export default async function FundDetailPage({
       period={period}
       startDate={startDate}
       endDate={endDate}
+      tab={tab}
+      auditTrail={
+        auditOk
+          ? auditResolved.data.map((r) => ({
+              id: r.id,
+              action: r.action,
+              metadata: (r.metadata ?? {}) as Record<string, unknown>,
+              created_at: r.created_at,
+            }))
+          : null
+      }
     />
   );
 }

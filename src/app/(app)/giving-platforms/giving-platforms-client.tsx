@@ -21,6 +21,8 @@ interface AccountOption {
   code: string;
   name: string;
   type: string;
+  available_in_reconciliation?: boolean;
+  available_in_donations?: boolean;
 }
 
 interface Props {
@@ -45,10 +47,10 @@ export function GivingPlatformsClient({ platforms, accounts }: Props) {
             No giving platforms configured yet.
           </p>
           <p className="text-sm text-muted-foreground">
-            Seed your default platforms with clearing accounts to get started.
+            Complete guided onboarding to create clearing and fee accounts, then add platforms here.
           </p>
           <Button asChild>
-            <Link href="/settings/seed">Go to Seed Data</Link>
+            <Link href="/onboarding/setup">Guided setup</Link>
           </Button>
         </CardContent>
       </Card>
@@ -88,9 +90,21 @@ function PlatformCard({
   const [isActive, setIsActive] = useState(platform.is_active);
   const [isPending, startTransition] = useTransition();
 
-  const assetAccounts = accounts.filter((a) => a.type === 'asset');
-  const expenseAccounts = accounts.filter((a) => a.type === 'expense');
-  const incomeAccounts = accounts.filter((a) => a.type === 'income');
+  const assetAccounts = accounts.filter(
+    (a) =>
+      a.type === 'asset' &&
+      (a.available_in_reconciliation ?? true),
+  );
+  const expenseAccounts = accounts.filter(
+    (a) =>
+      a.type === 'expense' &&
+      (a.available_in_donations ?? false),
+  );
+  const incomeAccounts = accounts.filter(
+    (a) =>
+      a.type === 'income' &&
+      (a.available_in_donations ?? false),
+  );
 
   const hasChanges =
     clearingId !== platform.clearing_account_id ||

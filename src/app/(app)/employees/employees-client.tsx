@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -219,7 +220,11 @@ export function EmployeesClient({ employees, canEdit }: Props) {
             <TableBody>
               {filteredEmployees.map((emp) => (
                 <TableRow key={emp.id} className={!emp.is_active ? 'opacity-60' : ''}>
-                  <TableCell className="font-medium">{emp.full_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link href={`/employees/${emp.id}`} className="hover:underline">
+                      {emp.full_name}
+                    </Link>
+                  </TableCell>
                   <TableCell>{emp.ni_number ?? '—'}</TableCell>
                   <TableCell>{emp.tax_code ?? '—'}</TableCell>
                   <TableCell>{emp.role ?? '—'}</TableCell>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useState, useCallback, useMemo, useEffect } from 'react';
+import { Suspense, useState, useCallback, useMemo, useEffect, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import {
   createBill,
@@ -9,7 +9,9 @@ import {
   approveBill,
   postBill,
   deleteBill,
+  updateBillAttachment,
 } from '@/lib/bills/actions';
+import { uploadFinancialEvidence } from '@/lib/evidence/actions';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -21,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -51,6 +54,7 @@ interface BillHeader {
   status: string;
   total_pence: number;
   journal_id: string | null;
+  attachment_url?: string | null;
 }
 
 interface BillLine {
@@ -120,6 +124,7 @@ function InnerForm({ accounts, funds, suppliers, supplierDefaultsMap, preselecte
 
   const isEdit = !!bill;
   const isDraft = !bill || bill.status === 'draft';
+  const canManageEvidence = canEdit && (!bill || (bill.status !== 'posted' && bill.status !== 'paid'));
 
   const [supplierId, setSupplierId] = useState(bill?.supplier_id ?? preselectedSupplierId ?? '');
 
@@ -165,6 +170,8 @@ function InnerForm({ accounts, funds, suppliers, supplierDefaultsMap, preselecte
   const [billDate, setBillDate] = useState(bill?.bill_date ?? '');
   const [dueDate, setDueDate] = useState(bill?.due_date ?? '');
   const [total, setTotal] = useState(bill ? penceToPounds(bill.total_pence) : '');
+  const [attachmentUrl, setAttachmentUrl] = useState(bill?.attachment_url ?? '');
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Line drafts
   const [lineDrafts, setLineDrafts] = useState<LineDraft[]>(() => {
@@ -222,6 +229,34 @@ function InnerForm({ accounts, funds, suppliers, supplierDefaultsMap, preselecte
   );
 
   const formAction = isEdit ? updateBill : createBill;
+
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('entityType', 'bills');
+    const uploadRes = await uploadFinancialEvidence(formData);
+    setUploadingFile(false);
+
+    if (uploadRes.error || !uploadRes.url) {
+      toast.error(uploadRes.error ?? 'Upload failed.');
+      return;
+    }
+
+    if (bill?.id && !isDraft) {
+      const saveRes = await updateBillAttachment(bill.id, uploadRes.url);
+      if (saveRes.error) {
+        toast.error(saveRes.error);
+        return;
+      }
+    }
+
+    setAttachmentUrl(uploadRes.url);
+    toast.success('Invoice evidence attached.');
+  };
 
   return (
     <Card>
@@ -284,6 +319,7 @@ function InnerForm({ accounts, funds, suppliers, supplierDefaultsMap, preselecte
           {isEdit && <input type="hidden" name="id" value={bill!.id} />}
           <input type="hidden" name="lines" value={linesJson} />
           <input type="hidden" name="total" value={total} />
+          <input type="hidden" name="attachment_url" value={attachmentUrl} />
 
           {/* Header fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -358,6 +394,30 @@ function InnerForm({ accounts, funds, suppliers, supplierDefaultsMap, preselecte
                 className="text-right"
               />
             </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="bill_attachment">Evidence / invoice file</Label>
+            <input
+              id="bill_attachment"
+              type="file"
+              onChange={handleFileUpload}
+              disabled={!canManageEvidence || uploadingFile}
+              className="text-sm"
+            />
+            {attachmentUrl ? (
+              <Link
+                href={attachmentUrl}
+                target="_blank"
+                className="text-sm text-blue-600 underline hover:no-underline"
+              >
+                View attached invoice evidence
+              </Link>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Attach the supplier invoice or supporting evidence before approval/posting.
+              </span>
+            )}
           </div>
 
           {/* Line editor */}

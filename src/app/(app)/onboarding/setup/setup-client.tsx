@@ -16,14 +16,18 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import type { OnboardingProgress } from './types';
+import { sendInvite } from '@/lib/invites/actions';
+import type { InviteRow } from '@/lib/invites/types';
 import {
   updateOrgProfile,
-  seedFundsForOnboarding,
   createFundForOnboarding,
-  seedAccountsForOnboarding,
   saveOnboardingStep,
   skipOnboardingStep,
   completeOnboarding,
+  setSetupModeForOnboarding,
+  createGuidedSetupStructure,
+  updateSetupProgressForOnboarding,
+  type SetupType,
 } from './actions';
 import { createBankAccount } from '@/lib/banking/bankAccounts';
 import { createBudget } from '@/lib/budgets/actions';
@@ -41,7 +45,7 @@ const STEP_META = [
   { label: 'Bank Accounts', description: 'Add your bank accounts' },
   { label: 'Import CSV', description: 'Import your first bank statement' },
   { label: 'Budget', description: 'Create your annual budget' },
-  { label: 'Invite Team', description: 'Invite trustees and team members' },
+  { label: 'Invite Team', description: 'Invite trustees and preview the key views' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -70,11 +74,13 @@ interface Budget {
 interface SetupWizardProps {
   orgId: string;
   orgName: string;
+  initialSetupType: SetupType;
   progress: OnboardingProgress;
   existingFunds: Fund[];
   accountCount: number;
   existingBankAccounts: BankAccount[];
   existingBudgets: Budget[];
+  existingInvites: InviteRow[];
   currentYear: number;
 }
 
@@ -85,11 +91,13 @@ interface SetupWizardProps {
 export function SetupWizard({
   orgId,
   orgName,
+  initialSetupType,
   progress,
   existingFunds,
   accountCount: initialAccountCount,
   existingBankAccounts,
   existingBudgets,
+  existingInvites,
   currentYear,
 }: SetupWizardProps) {
   const router = useRouter();
@@ -105,10 +113,12 @@ export function SetupWizard({
 
   // Local state for each step's data
   const [name, setName] = useState(orgName);
-  const [funds, setFunds] = useState<Fund[]>(existingFunds);
-  const [accountCount, setAccountCount] = useState(initialAccountCount);
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(existingBankAccounts);
+  const [setupType, setSetupType] = useState<SetupType>(initialSetupType);
+  const [funds] = useState<Fund[]>(existingFunds);
+  const [accountCount] = useState(initialAccountCount);
+  const [bankAccounts] = useState<BankAccount[]>(existingBankAccounts);
   const [budgets, setBudgets] = useState<Budget[]>(existingBudgets);
+  const [pendingInvites, setPendingInvites] = useState<InviteRow[]>(existingInvites);
 
   // Inline form state
   const [newFundName, setNewFundName] = useState('');
@@ -116,6 +126,14 @@ export function SetupWizard({
   const [newBankName, setNewBankName] = useState('');
   const [newBankLast4, setNewBankLast4] = useState('');
   const [newBankSortCode, setNewBankSortCode] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'viewer' | 'finance_user' | 'treasurer' | 'trustee_viewer'>('trustee_viewer');
+  const [guidedAnswers, setGuidedAnswers] = useState({
+    restrictedFunds: false,
+    lettings: false,
+    payroll: false,
+    giftAid: false,
+  });
 
   const progressPercent = showCompletion
     ? 100
@@ -174,6 +192,24 @@ export function SetupWizard({
   /* ---------------------------------------------------------------- */
 
   function renderStep1() {
+    const setupOptions: { value: SetupType; title: string; description: string }[] = [
+      {
+        value: 'blank',
+        title: 'Blank setup',
+        description: 'Start with no generic funds, accounts, or categories. Add only what you need.',
+      },
+      {
+        value: 'guided',
+        title: 'Guided setup',
+        description: 'Answer a few questions and create a small relevant starter structure.',
+      },
+      {
+        value: 'import_first',
+        title: 'Import-first setup',
+        description: 'Add a bank account, upload a statement, then build structure from real transactions.',
+      },
+    ];
+
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
@@ -187,6 +223,39 @@ export function SetupWizard({
             onChange={(e) => setName(e.target.value)}
             placeholder="My Church"
           />
+        </div>
+        <div className="space-y-3 rounded-xl border bg-surface-muted/50 p-4">
+          <div>
+            <p className="text-sm font-medium">Choose your setup path</p>
+            <p className="text-xs text-muted-foreground">
+              Nothing is pre-populated automatically. You can change path later.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {setupOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setSetupType(option.value);
+                  startTransition(async () => {
+                    const result = await setSetupModeForOnboarding(orgId, option.value);
+                    if (result.error) setError(result.error);
+                  });
+                }}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  setupType === option.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-background hover:bg-muted/40'
+                }`}
+              >
+                <span className="text-sm font-semibold">{option.title}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {option.description}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex gap-3 pt-2">
           <Button
@@ -218,8 +287,8 @@ export function SetupWizard({
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Funds track how money is designated. You can seed the default church funds
-          or add your own.
+          Funds track how money is designated. Start blank, add one manually, or let
+          guided setup create only the funds you actually need.
         </p>
 
         {funds.length > 0 && (
@@ -238,26 +307,69 @@ export function SetupWizard({
           </div>
         )}
 
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            disabled={isPending}
-            onClick={() => {
-              startTransition(async () => {
-                setError(null);
-                const result = await seedFundsForOnboarding(orgId);
-                if (result.error) {
-                  setError(result.error);
-                  return;
-                }
-                // Refresh the page to get updated funds
-                router.refresh();
-              });
-            }}
-          >
-            {isPending ? 'Seeding...' : 'Seed Default Funds'}
-          </Button>
-        </div>
+        {setupType === 'guided' && (
+          <div className="space-y-4 rounded-xl border bg-surface-muted/40 p-4">
+            <div>
+              <p className="text-sm font-medium">Guided setup questions</p>
+              <p className="text-xs text-muted-foreground">
+                These answers create a small structure, not a full generic list.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ['restrictedFunds', 'Do you have restricted funds?'],
+                ['lettings', 'Do you run lettings or room hire?'],
+                ['payroll', 'Do you have employees or payroll?'],
+                ['giftAid', 'Do you claim Gift Aid?'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 rounded-lg border bg-background p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={guidedAnswers[key as keyof typeof guidedAnswers]}
+                    onChange={(event) => {
+                      setGuidedAnswers((prev) => ({
+                        ...prev,
+                        [key]: event.target.checked,
+                      }));
+                    }}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              disabled={isPending}
+              onClick={() => {
+                startTransition(async () => {
+                  setError(null);
+                  const result = await createGuidedSetupStructure(orgId, guidedAnswers);
+                  if (result.error) {
+                    setError(result.error);
+                    return;
+                  }
+                  router.refresh();
+                });
+              }}
+            >
+              {isPending ? 'Creating...' : 'Create minimal guided structure'}
+            </Button>
+          </div>
+        )}
+
+        {setupType === 'blank' && (
+          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+            Blank setup keeps funds empty until you add one or import transactions that
+            show what structure you need.
+          </div>
+        )}
+
+        {setupType === 'import_first' && (
+          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+            Import-first setup can skip funds for now. After your first statement,
+            ChurchLedger will suggest useful funds and categories from the bank data.
+          </div>
+        )}
 
         <div className="rounded-lg border p-4 space-y-3">
           <p className="text-sm font-medium">Add a custom fund</p>
@@ -338,9 +450,9 @@ export function SetupWizard({
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Your chart of accounts defines the categories for tracking income,
-          expenses, assets, and liabilities. Seed the default accounts or add your
-          own later.
+          Your chart of accounts should match your church, not a generic template.
+          Guided setup can create a small starter structure, or you can build it from
+          bank categorisation suggestions.
         </p>
 
         {accountCount > 0 && (
@@ -359,26 +471,13 @@ export function SetupWizard({
           </div>
         )}
 
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            disabled={isPending}
-            onClick={() => {
-              startTransition(async () => {
-                setError(null);
-                const result = await seedAccountsForOnboarding(orgId);
-                if (result.error) {
-                  setError(result.error);
-                  return;
-                }
-                setAccountCount((prev) => Math.max(prev, result.count));
-                router.refresh();
-              });
-            }}
-          >
-            {isPending ? 'Seeding...' : 'Seed Chart of Accounts'}
-          </Button>
-        </div>
+        {accountCount === 0 && (
+          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+            No accounts have been created yet. Continue with a blank chart, run guided
+            setup from the Funds step, or import bank data and accept suggested
+            accounts/categories during reconciliation.
+          </div>
+        )}
 
         <div className="flex gap-3 pt-2">
           <Button onClick={() => handleContinue(3)} disabled={isPending}>
@@ -490,6 +589,7 @@ export function SetupWizard({
                   setError(result.error);
                   return;
                 }
+                await updateSetupProgressForOnboarding(orgId, { bank_added: true });
                 setNewBankName('');
                 setNewBankSortCode('');
                 setNewBankLast4('');
@@ -642,38 +742,116 @@ export function SetupWizard({
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Invite trustees and other team members to view reports and collaborate.
+          Invite trustees and finance teammates now, then jump straight into the
+          dashboard, reports, or settings once setup is complete.
         </p>
 
-        <div className="rounded-lg border border-dashed p-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <svg
-              className="h-6 w-6 text-muted-foreground"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
+        <div className="rounded-xl border p-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-[1fr_180px_auto]">
+            <div className="space-y-1.5">
+              <Label htmlFor="invite-email">Invite Email</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="trustee@example.com"
               />
-            </svg>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="invite-role">Role</Label>
+              <select
+                id="invite-role"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
+              >
+                <option value="trustee_viewer">Trustee Viewer</option>
+                <option value="viewer">Viewer</option>
+                <option value="finance_user">Finance User</option>
+                <option value="treasurer">Treasurer</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                variant="outline"
+                disabled={isPending || !inviteEmail.trim()}
+                onClick={() => {
+                  startTransition(async () => {
+                    setError(null);
+                    const result = await sendInvite({
+                      orgId,
+                      email: inviteEmail,
+                      role: inviteRole,
+                    });
+
+                    if (result.error) {
+                      setError(result.error);
+                      return;
+                    }
+
+                    if (result.data) {
+                      setPendingInvites((prev) => [result.data as InviteRow, ...prev]);
+                      setInviteEmail('');
+                    }
+                  });
+                }}
+              >
+                Send Invite
+              </Button>
+            </div>
           </div>
-          <p className="text-sm font-medium">Coming Soon</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            User invitations will be available in a future update. You can manage
-            members in{' '}
-            <Link
-              href="/settings"
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Settings
-            </Link>{' '}
-            once they sign up.
-          </p>
+
+          {pendingInvites.length > 0 ? (
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Pending invites</p>
+              <div className="mt-3 space-y-2">
+                {pendingInvites.map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{invite.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {invite.role.replace('_', ' ')} · expires{' '}
+                        {new Date(invite.expiresAt).toLocaleDateString('en-GB')}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-[10px]">
+                      Pending
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              No invitations sent yet. You can finish setup now and invite people later
+              from Settings if you prefer.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border bg-muted/20 p-4">
+          <p className="text-sm font-medium">Next places to visit</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href="/dashboard" target="_blank">
+                Open Dashboard
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/reports/monthly-dashboard" target="_blank">
+                View Monthly Dashboard
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/settings" target="_blank">
+                Open Settings
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <div className="flex gap-3 pt-2">
@@ -810,8 +988,11 @@ export function SetupWizard({
   /* ---------------------------------------------------------------- */
 
   return (
-    <Card className="w-full max-w-2xl border shadow-sm">
-      <CardHeader className="text-center pb-2">
+    <Card className="w-full max-w-3xl">
+      <CardHeader className="pb-2 text-center">
+        <div className="mx-auto mb-2 inline-flex rounded-full border border-border/80 bg-surface-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Onboarding
+        </div>
         <CardTitle className="text-2xl">
           {showCompletion ? 'All Done!' : 'Set Up ChurchLedger'}
         </CardTitle>
@@ -824,10 +1005,10 @@ export function SetupWizard({
 
       <CardContent className="space-y-6">
         {/* Progress bar */}
-        <div className="space-y-2">
+        <div className="space-y-3 rounded-2xl border border-border/80 bg-surface-muted/80 p-4">
           <Progress value={progressPercent} />
           {!showCompletion && (
-            <div className="flex justify-between">
+            <div className="flex flex-wrap justify-center gap-2">
               {STEP_META.map((meta, i) => {
                 const stepNum = i + 1;
                 const isActive = step === stepNum;
@@ -839,12 +1020,12 @@ export function SetupWizard({
                       setError(null);
                       setStep(stepNum);
                     }}
-                    className={`text-[10px] transition-colors ${
+                    className={`rounded-full px-2.5 py-1 text-[10px] transition-colors ${
                       isActive
-                        ? 'font-bold text-primary'
+                        ? 'bg-primary text-primary-foreground'
                         : isDone
-                          ? 'text-primary/70'
-                          : 'text-muted-foreground'
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-muted-foreground hover:bg-background'
                     }`}
                   >
                     {meta.label}
@@ -857,7 +1038,7 @@ export function SetupWizard({
 
         {/* Error display */}
         {error && (
-          <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -867,7 +1048,7 @@ export function SetupWizard({
 
         {/* Back button (not shown on step 1 or completion) */}
         {!showCompletion && step > 1 && (
-          <div className="border-t pt-4">
+          <div className="border-t border-border/70 pt-4">
             <Button variant="ghost" size="sm" onClick={goBack} disabled={isPending}>
               Back to {STEP_META[step - 2].label}
             </Button>

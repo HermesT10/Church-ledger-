@@ -5,65 +5,38 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
+import { trackProductEvent } from '@/lib/analytics/server';
 import type { OnboardingProgress } from './types';
 
-/* ------------------------------------------------------------------ */
-/*  Seed data (shared with settings/seed/actions.ts)                   */
-/* ------------------------------------------------------------------ */
+export type SetupType = 'blank' | 'guided' | 'import_first';
 
-const SEED_FUNDS: {
-  name: string;
-  type: 'unrestricted' | 'restricted' | 'designated';
-  reporting_group: string;
-}[] = [
-  { name: 'General Fund', type: 'unrestricted', reporting_group: 'General' },
-  { name: 'Friends In Need', type: 'restricted', reporting_group: 'Outreach' },
-  { name: 'Tanzania Project', type: 'restricted', reporting_group: 'Outreach' },
-  { name: 'Building Project', type: 'restricted', reporting_group: 'Property' },
-  { name: 'Seniors', type: 'restricted', reporting_group: 'Community' },
-  { name: 'URC Community Grant', type: 'restricted', reporting_group: 'Grants' },
-  { name: 'Basketball', type: 'restricted', reporting_group: 'Community' },
-  { name: 'Youth', type: 'restricted', reporting_group: 'Community' },
-  { name: 'Maintenance Funds', type: 'restricted', reporting_group: 'Property' },
-  { name: 'Baptist Union', type: 'restricted', reporting_group: 'Grants' },
-  { name: 'URC Funding', type: 'restricted', reporting_group: 'Grants' },
+export interface GuidedSetupAnswers {
+  restrictedFunds: boolean;
+  lettings: boolean;
+  payroll: boolean;
+  giftAid: boolean;
+}
+
+const BASE_GUIDED_ACCOUNTS = [
+  { code: '1000', name: 'Bank Account', type: 'asset', reporting_category: 'Cash at bank and in hand', subtype: 'bank' },
+  { code: '4000', name: 'Giving and Donations', type: 'income', reporting_category: 'Donations and legacies', subtype: 'giving' },
+  { code: '5000', name: 'Church Running Costs', type: 'expense', reporting_category: 'Charitable activities', subtype: 'general' },
 ];
 
-const SEED_ACCOUNTS: {
-  code: string;
-  name: string;
-  type: 'income' | 'expense' | 'asset' | 'liability' | 'equity';
-  reporting_category: string;
-}[] = [
-  // Income
-  { code: 'INC-001', name: 'Donations-General', type: 'income', reporting_category: 'Tithes & Offerings' },
-  { code: 'INC-002', name: 'Donations-Restricted', type: 'income', reporting_category: 'Tithes & Offerings' },
-  { code: 'INC-003', name: 'Gift Aid', type: 'income', reporting_category: 'Tax Recovery' },
-  { code: 'INC-004', name: 'Lettings/Hall Hire', type: 'income', reporting_category: 'Other Income' },
-  { code: 'INC-005', name: 'Grants', type: 'income', reporting_category: 'Other Income' },
-  { code: 'INC-006', name: 'Fundraising/Events', type: 'income', reporting_category: 'Other Income' },
-  // Expense
-  { code: 'EXP-001', name: 'Salaries', type: 'expense', reporting_category: 'Staff Costs' },
-  { code: 'EXP-002', name: 'Employer NIC', type: 'expense', reporting_category: 'Staff Costs' },
-  { code: 'EXP-003', name: 'Pension', type: 'expense', reporting_category: 'Staff Costs' },
-  { code: 'EXP-004', name: 'Utilities', type: 'expense', reporting_category: 'Premises Costs' },
-  { code: 'EXP-005', name: 'Insurance', type: 'expense', reporting_category: 'Premises Costs' },
-  { code: 'EXP-006', name: 'Maintenance & Repairs', type: 'expense', reporting_category: 'Premises Costs' },
-  { code: 'EXP-007', name: 'Ministry Activities', type: 'expense', reporting_category: 'Ministry & Activities' },
-  { code: 'EXP-008', name: 'Youth Activities', type: 'expense', reporting_category: 'Ministry & Activities' },
-  // Asset
-  { code: 'AST-001', name: 'Bank Account 1', type: 'asset', reporting_category: 'Bank Accounts' },
-  { code: 'AST-002', name: 'Bank Account 2', type: 'asset', reporting_category: 'Bank Accounts' },
-  { code: 'AST-003', name: 'Bank Account 3', type: 'asset', reporting_category: 'Bank Accounts' },
-  // Liability
-  { code: 'LIA-001', name: 'Creditors/Accounts Payable', type: 'liability', reporting_category: 'Creditors' },
-  { code: 'LIA-002', name: 'PAYE/NIC Liability', type: 'liability', reporting_category: 'Payroll Liabilities' },
-  { code: 'LIA-003', name: 'Pension Liability', type: 'liability', reporting_category: 'Payroll Liabilities' },
-  { code: 'LIA-004', name: 'Net Pay Liability', type: 'liability', reporting_category: 'Payroll Liabilities' },
-  // Equity
-  { code: 'EQU-001', name: 'General Reserves', type: 'equity', reporting_category: 'General Reserves' },
-  { code: 'EQU-002', name: 'Restricted Reserves', type: 'equity', reporting_category: 'Restricted Reserves' },
-];
+const GUIDED_OPTIONAL_ACCOUNTS = {
+  lettings: [
+    { code: '4100', name: 'Lettings Income', type: 'income', reporting_category: 'Charitable activities', subtype: 'lettings' },
+  ],
+  payroll: [
+    { code: '5200', name: 'Salaries and Wages', type: 'expense', reporting_category: 'Staff costs', subtype: 'payroll' },
+    { code: '2210', name: 'PAYE and NIC Payable', type: 'liability', reporting_category: 'Creditors', subtype: 'payroll_liability' },
+    { code: '2220', name: 'Pension Payable', type: 'liability', reporting_category: 'Creditors', subtype: 'payroll_liability' },
+  ],
+  giftAid: [
+    { code: '1100', name: 'Gift Aid Receivable', type: 'asset', reporting_category: 'Debtors', subtype: 'gift_aid' },
+    { code: '4010', name: 'Gift Aid Income', type: 'income', reporting_category: 'Donations and legacies', subtype: 'gift_aid' },
+  ],
+};
 
 /* ------------------------------------------------------------------ */
 /*  Get or create onboarding progress                                  */
@@ -207,7 +180,7 @@ export async function completeOnboarding(
   orgId: string,
 ): Promise<{ error: string | null }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { role, user } = await getActiveOrg();
 
   try {
     assertCanPerform(role, 'update', 'settings');
@@ -224,6 +197,26 @@ export async function completeOnboarding(
       updated_at: new Date().toISOString(),
     })
     .eq('organisation_id', orgId);
+
+  if (!error) {
+    await trackProductEvent({
+      organisationId: orgId,
+      userId: user.id,
+      eventType: 'onboarding_completed',
+      moduleKey: 'onboarding',
+      path: '/onboarding/setup',
+    });
+  }
+
+  if (!error) {
+    await supabase
+      .from('organisations')
+      .update({
+        setup_mode: false,
+        setup_completed_at: new Date().toISOString(),
+      })
+      .eq('id', orgId);
+  }
 
   return { error: error?.message ?? null };
 }
@@ -261,44 +254,80 @@ export async function updateOrgProfile(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Seed funds (non-redirecting variant for onboarding wizard)         */
+/*  Setup mode and progress                                            */
 /* ------------------------------------------------------------------ */
 
-export async function seedFundsForOnboarding(
+export async function setSetupModeForOnboarding(
   orgId: string,
-): Promise<{ success: boolean; error: string | null; count: number }> {
+  setupType: SetupType,
+): Promise<{ success: boolean; error: string | null }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { role, user } = await getActiveOrg();
 
   try {
-    assertCanPerform(role, 'seed', 'settings');
+    assertCanPerform(role, 'update', 'settings');
   } catch (e) {
-    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.', count: 0 };
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  if (!['blank', 'guided', 'import_first'].includes(setupType)) {
+    return { success: false, error: 'Unknown setup mode.' };
   }
 
   const supabase = await createClient();
 
-  const rows = SEED_FUNDS.map((fund) => ({
-    organisation_id: orgId,
-    name: fund.name,
-    type: fund.type,
-    reporting_group: fund.reporting_group,
-  }));
-
   const { error } = await supabase
-    .from('funds')
-    .upsert(rows, { onConflict: 'organisation_id,name', ignoreDuplicates: true });
+    .from('organisations')
+    .update({ setup_mode: true, setup_type: setupType })
+    .eq('id', orgId);
 
   if (error) {
-    return { success: false, error: error.message, count: 0 };
+    return { success: false, error: error.message };
   }
 
-  return { success: true, error: null, count: SEED_FUNDS.length };
+  await supabase.from('workspace_setup_progress').upsert(
+    {
+      workspace_id: orgId,
+      updated_by: user.id,
+    },
+    { onConflict: 'workspace_id' },
+  );
+
+  return { success: true, error: null };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Create a single fund (non-redirecting variant for onboarding)      */
-/* ------------------------------------------------------------------ */
+export async function updateSetupProgressForOnboarding(
+  orgId: string,
+  progress: Partial<{
+    bank_added: boolean;
+    statement_uploaded: boolean;
+    transactions_categorised: boolean;
+    funds_created: boolean;
+    reports_viewed: boolean;
+    skipped: boolean;
+  }>,
+): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { role, user } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'update', 'settings');
+  } catch (e) {
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('workspace_setup_progress').upsert(
+    {
+      workspace_id: orgId,
+      ...progress,
+      updated_by: user.id,
+    },
+    { onConflict: 'workspace_id' },
+  );
+
+  return { success: !error, error: error?.message ?? null };
+}
 
 export async function createFundForOnboarding(
   orgId: string,
@@ -334,38 +363,127 @@ export async function createFundForOnboarding(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Seed accounts (non-redirecting variant for onboarding wizard)      */
+/*  Guided setup builder                                               */
 /* ------------------------------------------------------------------ */
 
-export async function seedAccountsForOnboarding(
+export async function createGuidedSetupStructure(
   orgId: string,
-): Promise<{ success: boolean; error: string | null; count: number }> {
+  answers: GuidedSetupAnswers,
+): Promise<{ success: boolean; error: string | null; created: { funds: number; accounts: number; categories: number } }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { role, user } = await getActiveOrg();
 
   try {
-    assertCanPerform(role, 'seed', 'settings');
+    assertCanPerform(role, 'create', 'settings');
   } catch (e) {
-    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.', count: 0 };
+    return {
+      success: false,
+      error: e instanceof PermissionError ? e.message : 'Permission denied.',
+      created: { funds: 0, accounts: 0, categories: 0 },
+    };
   }
 
   const supabase = await createClient();
+  const fundRows = [
+    {
+      organisation_id: orgId,
+      name: 'General Fund',
+      type: 'unrestricted',
+      reporting_group: 'General',
+      created_by: user.id,
+    },
+    ...(answers.restrictedFunds
+      ? [{
+          organisation_id: orgId,
+          name: 'Restricted Funds Holding',
+          type: 'restricted',
+          reporting_group: 'Restricted funds',
+          created_by: user.id,
+        }]
+      : []),
+  ];
 
-  const rows = SEED_ACCOUNTS.map((account) => ({
+  const accountTemplates = [
+    ...BASE_GUIDED_ACCOUNTS,
+    ...(answers.lettings ? GUIDED_OPTIONAL_ACCOUNTS.lettings : []),
+    ...(answers.payroll ? GUIDED_OPTIONAL_ACCOUNTS.payroll : []),
+    ...(answers.giftAid ? GUIDED_OPTIONAL_ACCOUNTS.giftAid : []),
+  ];
+  const accountRows = accountTemplates.map((account) => ({
     organisation_id: orgId,
     code: account.code,
     name: account.name,
     type: account.type,
     reporting_category: account.reporting_category,
+    subtype: account.subtype,
+    created_by: user.id,
   }));
 
-  const { error } = await supabase
-    .from('accounts')
-    .upsert(rows, { onConflict: 'organisation_id,code', ignoreDuplicates: true });
+  const categoryRows = [
+    { register_type: 'income', name: 'Giving', group_name: 'Donations', display_order: 10 },
+    { register_type: 'income', name: 'Other income', group_name: 'Other', display_order: 90 },
+    { register_type: 'expense', name: 'Church running costs', group_name: 'Running costs', display_order: 10 },
+    ...(answers.lettings
+      ? [{ register_type: 'income', name: 'Lettings', group_name: 'Lettings', display_order: 20 }]
+      : []),
+    ...(answers.giftAid
+      ? [{ register_type: 'income', name: 'Gift Aid', group_name: 'Donations', display_order: 30 }]
+      : []),
+    ...(answers.payroll
+      ? [{ register_type: 'expense', name: 'Payroll', group_name: 'Staff costs', display_order: 20 }]
+      : []),
+  ].map((category) => ({
+    organisation_id: orgId,
+    ...category,
+    status: 'active',
+    created_by: user.id,
+  }));
 
-  if (error) {
-    return { success: false, error: error.message, count: 0 };
+  const { error: fundError } = await supabase
+    .from('funds')
+    .upsert(fundRows, { onConflict: 'organisation_id,name', ignoreDuplicates: true });
+  if (fundError) {
+    return { success: false, error: fundError.message, created: { funds: 0, accounts: 0, categories: 0 } };
   }
 
-  return { success: true, error: null, count: SEED_ACCOUNTS.length };
+  const { error: accountError } = await supabase
+    .from('accounts')
+    .upsert(accountRows, { onConflict: 'organisation_id,code', ignoreDuplicates: true });
+  if (accountError) {
+    return { success: false, error: accountError.message, created: { funds: fundRows.length, accounts: 0, categories: 0 } };
+  }
+
+  const { error: categoryError } = await supabase
+    .from('register_categories')
+    .upsert(categoryRows, { onConflict: 'organisation_id,register_type,name', ignoreDuplicates: true });
+  if (categoryError) {
+    return {
+      success: false,
+      error: categoryError.message,
+      created: { funds: fundRows.length, accounts: accountRows.length, categories: 0 },
+    };
+  }
+
+  await updateSetupProgressForOnboarding(orgId, {
+    funds_created: true,
+  });
+
+  await trackProductEvent({
+    organisationId: orgId,
+    userId: user.id,
+    eventType: 'guided_setup_structure_created',
+    moduleKey: 'onboarding',
+    path: '/onboarding/setup',
+    metadata: { answers },
+  });
+
+  return {
+    success: true,
+    error: null,
+    created: {
+      funds: fundRows.length,
+      accounts: accountRows.length,
+      categories: categoryRows.length,
+    },
+  };
 }

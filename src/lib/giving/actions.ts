@@ -18,6 +18,8 @@ import {
   buildPayoutJournalSpecs,
   isJournalBalanced,
 } from './journalBuilder';
+import { runGiftAidDonorMatching } from '@/lib/giftaid/matching';
+import { isDateInLockedPeriod } from '@/lib/periods/actions';
 import type {
   GivingProvider,
   GivingImportResult,
@@ -233,6 +235,20 @@ export async function importGivingCsv(
   }
 
   const skippedCount = dbRows.length - insertedCount;
+  const givingRowsByFingerprint = new Map<string, string>();
+
+  const { data: insertedGivingRows, error: givingRowsError } = await supabase
+    .from('giving_import_rows')
+    .select('id, fingerprint')
+    .eq('giving_import_id', importId);
+
+  if (givingRowsError) {
+    errors.push(`Unable to load imported giving rows: ${givingRowsError.message}`);
+  } else {
+    for (const row of insertedGivingRows ?? []) {
+      givingRowsByFingerprint.set(row.fingerprint, row.id);
+    }
+  }
 
   // 8. Build and post journals (one per day)
   const groups = groupRowsByDate(normalizedRows);
@@ -249,6 +265,11 @@ export async function importGivingCsv(
   let journalsCreated = 0;
 
   for (const spec of journalSpecs) {
+    if (await isDateInLockedPeriod(spec.journal_date)) {
+      errors.push(`Journal for ${spec.journal_date}: date falls in a locked financial period, skipping.`);
+      continue;
+    }
+
     if (!isJournalBalanced(spec.lines)) {
       errors.push(`Journal for ${spec.journal_date}: not balanced, skipping.`);
       continue;
@@ -331,6 +352,11 @@ export async function importGivingCsv(
     });
 
     for (const spec of payoutSpecs) {
+      if (await isDateInLockedPeriod(spec.journal_date)) {
+        errors.push(`Payout journal for ${spec.journal_date}: date falls in a locked financial period, skipping.`);
+        continue;
+      }
+
       if (!isJournalBalanced(spec.lines)) {
         errors.push(`Payout journal: not balanced, skipping.`);
         continue;
@@ -396,7 +422,7 @@ export async function importGivingCsv(
   }
 
   // 9. Create donations records from imported rows
-  let donationsCreated = 0;
+  const createdDonationIds: string[] = [];
 
   // Fetch all donors for name-based matching
   const { data: allDonors } = await supabase
@@ -419,6 +445,15 @@ export async function importGivingCsv(
         donorId = donorsByName.get(row.donor_name.trim().toLowerCase()) ?? null;
       }
 
+      const rowFingerprint = fingerprintGivingRow({
+        provider,
+        txn_date: row.txn_date,
+        gross_amount_pence: row.gross_amount_pence,
+        fee_amount_pence: row.fee_amount_pence,
+        reference: row.reference,
+      });
+      const givingImportRowId = givingRowsByFingerprint.get(rowFingerprint) ?? null;
+
       // Build fingerprint for the donation record
       const fp = [
         donorId ?? 'anon',
@@ -437,7 +472,7 @@ export async function importGivingCsv(
 
       if (existingDonation && existingDonation.length > 0) continue;
 
-      const { error: donErr } = await admin
+      const { data: insertedDonation, error: donErr } = await admin
         .from('donations')
         .insert({
           organisation_id: orgId,
@@ -454,13 +489,36 @@ export async function importGivingCsv(
           provider_reference: row.reference ?? null,
           gift_aid_eligible: false,
           import_batch_id: importId,
+          giving_import_row_id: givingImportRowId,
           fingerprint: fp,
           created_by: user.id,
-        });
+        })
+        .select('id')
+        .single();
 
-      if (!donErr) donationsCreated++;
+      if (!donErr && insertedDonation?.id) createdDonationIds.push(insertedDonation.id);
     } catch {
       // Non-critical — donation record creation failure should not block import
+    }
+  }
+
+  if (createdDonationIds.length > 0) {
+    try {
+      const matchResult = await runGiftAidDonorMatching({
+        donationIds: createdDonationIds,
+      });
+
+      for (const matchError of matchResult.errors) {
+        errors.push(`Donor matching: ${matchError}`);
+      }
+    } catch (matchError) {
+      errors.push(
+        `Donor matching: ${
+          matchError instanceof Error
+            ? matchError.message
+            : 'Unknown donor matching failure.'
+        }`
+      );
     }
   }
 

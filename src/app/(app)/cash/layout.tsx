@@ -24,7 +24,7 @@ export default async function CashLayout({ children }: { children: ReactNode }) 
       />
 
       {/* Sub-navigation tabs */}
-      <nav className="flex gap-1 border-b border-slate-200/30">
+      <nav className="flex flex-wrap gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-card">
         {TABS.map((tab) => {
           const isActive =
             tab.href === '/cash'
@@ -34,10 +34,10 @@ export default async function CashLayout({ children }: { children: ReactNode }) 
             <Link
               key={tab.href}
               href={tab.href}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
             >
               {tab.label}

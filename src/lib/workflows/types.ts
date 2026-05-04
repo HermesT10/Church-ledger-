@@ -2,6 +2,17 @@
 /*  Workflow types (shared, not a server action file)                   */
 /* ------------------------------------------------------------------ */
 
+export type InvoiceSubmissionStatus =
+  | 'draft'
+  | 'submitted'
+  | 'under_review'
+  | 'approved'
+  | 'rejected'
+  | 'change_requested'
+  | 'scheduled_for_payment'
+  | 'paid'
+  | 'voided';
+
 export interface InvoiceSubmissionRow {
   id: string;
   organisationId: string;
@@ -12,19 +23,39 @@ export interface InvoiceSubmissionRow {
   invoiceNumber: string | null;
   invoiceDate: string;
   amountPence: number;
+  budgetId: string | null;
+  budgetName: string | null;
   fundId: string | null;
   fundName: string | null;
   accountId: string | null;
   accountName: string | null;
   description: string | null;
   attachmentUrl: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'converted';
+  attachmentPath: string | null;
+  attachmentFileName: string | null;
+  status: InvoiceSubmissionStatus;
   reviewedBy: string | null;
   reviewerName: string | null;
   reviewedAt: string | null;
   reviewNote: string | null;
   billId: string | null;
+  paymentRunId: string | null;
+  submittedAt: string | null;
+  underReviewAt: string | null;
+  changeRequestedAt: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  paidAt: string | null;
+  adminNote: string | null;
+  requestChangesNote: string | null;
   createdAt: string;
+}
+
+export interface PortalInvoiceFormOptions {
+  suppliers: { id: string; name: string }[];
+  funds: { id: string; name: string }[];
+  budgets: { id: string; name: string; year: number | null; canSubmitAgainst: boolean }[];
+  expenseAccounts: { id: string; code: string; name: string }[];
 }
 
 export interface ExpenseRequestRow {

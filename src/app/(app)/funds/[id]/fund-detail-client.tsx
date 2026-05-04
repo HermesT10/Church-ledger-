@@ -56,10 +56,18 @@ function formatDate(d: string) {
 }
 
 const PERIODS: PeriodPreset[] = ['this_month', 'last_month', 'ytd', 'custom'];
+const FILTER_SELECT_CLASS = 'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
 /* ------------------------------------------------------------------ */
+
+interface AuditTrailRow {
+  id: string;
+  action: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
 
 interface Props {
   fund: FundRow;
@@ -74,11 +82,27 @@ interface Props {
   period: string;
   startDate: string;
   endDate: string;
+  /** Detail tab key */
+  tab: string;
+  /** Admin/treasurer-only audit rows */
+  auditTrail: AuditTrailRow[] | null;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
+
+const TAB_IDS = ['overview', 'transactions', 'budget', 'reports', 'settings', 'audit'] as const;
+type DetailTabId = (typeof TAB_IDS)[number];
+
+const TAB_LABELS: Record<DetailTabId, string> = {
+  overview: 'Overview',
+  transactions: 'Money in/out',
+  budget: 'Budget',
+  reports: 'Linked reports',
+  settings: 'Settings',
+  audit: 'Audit trail',
+};
 
 export function FundDetailClient({
   fund,
@@ -93,6 +117,8 @@ export function FundDetailClient({
   period,
   startDate,
   endDate,
+  tab: rawTab,
+  auditTrail,
 }: Props) {
   const router = useRouter();
 
@@ -102,9 +128,13 @@ export function FundDetailClient({
   const [customTo, setCustomTo] = useState(endDate);
 
   const spendStatus = getOverspendStatus(fund.type, stats?.closing_balance_pence ?? 0);
+  const activeTab: DetailTabId = TAB_IDS.includes(rawTab as DetailTabId) ? (rawTab as DetailTabId) : 'overview';
 
   function buildUrl(overrides: Record<string, string | undefined>) {
     const base: Record<string, string> = { period };
+    if (activeTab !== 'overview') {
+      base.tab = activeTab;
+    }
     if (period === 'custom') {
       base.from = startDate;
       base.to = endDate;
@@ -116,6 +146,10 @@ export function FundDetailClient({
     }
     const qs = new URLSearchParams(clean).toString();
     return `/funds/${fund.id}${qs ? `?${qs}` : ''}`;
+  }
+
+  function buildTabHref(t: DetailTabId) {
+    return buildUrl({ tab: t === 'overview' ? undefined : t });
   }
 
   function handlePeriodChange(p: PeriodPreset) {
@@ -167,34 +201,63 @@ export function FundDetailClient({
         )}
       </div>
 
-      {/* Period Selector */}
-      <div className="flex items-center gap-2 flex-wrap border rounded-lg p-3 bg-muted/20">
-        <Calendar size={16} className="text-muted-foreground" />
-        <span className="text-sm font-medium text-muted-foreground mr-1">Period:</span>
-        {PERIODS.map((p) => (
-          <Button
-            key={p}
-            variant={period === p ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => handlePeriodChange(p)}
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-1 border-b border-border pb-1">
+        {(TAB_IDS.filter((tid) => tid !== 'audit' || auditTrail) as DetailTabId[]).map((tid) => (
+          <Link
+            key={tid}
+            href={buildTabHref(tid)}
+            className={`px-3 py-2 rounded-t-lg text-sm font-medium transition-colors ${
+              activeTab === tid
+                ? 'bg-card border border-border border-b-0 text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            {PERIOD_LABELS[p]}
-          </Button>
+            {TAB_LABELS[tid]}
+          </Link>
         ))}
+      </div>
+
+      {/* Period Selector */}
+      {(activeTab === 'overview' || activeTab === 'transactions') && (
+      <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-card">
+        <div className="grid gap-4 md:grid-cols-[260px_1fr]">
+          <label className="space-y-1.5">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <Calendar size={14} />
+              Period
+            </span>
+            <select
+              value={period}
+              onChange={(event) => handlePeriodChange(event.target.value as PeriodPreset)}
+              className={FILTER_SELECT_CLASS}
+            >
+              {PERIODS.map((p) => (
+                <option key={p} value={p}>{PERIOD_LABELS[p]}</option>
+              ))}
+            </select>
+            <span className="block text-xs text-muted-foreground">Choose the range for this fund detail view.</span>
+          </label>
+
         {period === 'custom' && (
-          <div className="flex items-center gap-2 ml-2">
-            <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-8 w-36 text-xs" />
+          <div className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Custom range</span>
+            <div className="flex flex-wrap items-center gap-2">
+            <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-10 w-36 rounded-xl text-xs" />
             <span className="text-sm text-muted-foreground">to</span>
-            <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-8 w-36 text-xs" />
+            <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-10 w-36 rounded-xl text-xs" />
             <Button size="sm" variant="outline" onClick={() => {
               if (customFrom && customTo) router.push(buildUrl({ period: 'custom', from: customFrom, to: customTo }));
             }}>Apply</Button>
+            </div>
           </div>
         )}
+        </div>
       </div>
+      )}
 
       {/* Summary Cards */}
-      {stats && (
+      {stats && activeTab === 'overview' && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -249,6 +312,7 @@ export function FundDetailClient({
       )}
 
       {/* Breakdown Tables */}
+      {activeTab === 'overview' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Income breakdown */}
         <Card>
@@ -336,8 +400,10 @@ export function FundDetailClient({
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Transactions */}
+      {activeTab === 'transactions' && (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Transactions</CardTitle>
@@ -378,7 +444,7 @@ export function FundDetailClient({
                           {t.credit_pence > 0 ? penceToPounds(t.credit_pence) : '—'}
                         </TableCell>
                         <TableCell>
-                          <Link href={`/journal/${t.journal_id}`} className="text-blue-600 hover:underline text-xs">
+                          <Link href={`/journals/${t.journal_id}`} className="text-primary hover:underline text-xs">
                             View
                           </Link>
                         </TableCell>
@@ -418,6 +484,90 @@ export function FundDetailClient({
           )}
         </CardContent>
       </Card>
+      )}
+
+      {activeTab === 'budget' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Budget vs actual</CardTitle>
+            <CardDescription>
+              Open the organisation budgets area to compare planned figures with this fund’s actuals.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link href={`/budgets?fund=${fund.id}`}>View budgets linked to funds</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'reports' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Reports for this fund</CardTitle>
+            <CardDescription>Each report respects your period permissions.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/reports/fund-movements">Fund movements</Link></Button>
+            <Button asChild variant="outline"><Link href="/reports/income-statement">Income statement</Link></Button>
+            <Button asChild variant="outline"><Link href="/reports/sofa">SOFA</Link></Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'settings' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Fund settings</CardTitle>
+            <CardDescription>Update naming, restriction notes, defaults, or archive safely.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {canEdit ? (
+              <Button asChild>
+                <Link href={`/funds/${fund.id}/edit`}>Edit fund settings</Link>
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">You need treasurer or admin access to edit this fund.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'audit' && auditTrail && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Audit trail</CardTitle>
+            <CardDescription>Changes recorded against this fund in the immutable audit log.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {auditTrail.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No audit events yet.</p>
+            ) : (
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditTrail.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="text-sm whitespace-nowrap">
+                          {formatDate(row.created_at)}
+                        </TableCell>
+                        <TableCell className="text-sm">{row.action}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

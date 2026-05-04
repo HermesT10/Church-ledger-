@@ -8,11 +8,11 @@ import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
 import { logAuditEvent } from '@/lib/audit';
+import { getAppEnv } from '@/lib/env';
+import { logServerFailure } from '@/lib/monitoring';
 import { isDateInLockedPeriod } from '@/lib/periods/actions';
-import {
-  buildJournalLinesFromBill,
-  buildPaymentRunJournalLines,
-} from './validation';
+import { enforcePortalPermissionForContext } from '@/lib/portal-permissions';
+import { createPortalNotification } from '@/lib/portal/notifications';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -37,7 +37,7 @@ function toPence(pounds: string): number {
 
 async function logApprovalEvent(params: {
   orgId: string;
-  entityType: 'bill' | 'payment_run' | 'payroll_run';
+  entityType: 'journal' | 'bill' | 'payment_run' | 'payroll_run';
   entityId: string;
   action: string;
   performedBy: string;
@@ -92,7 +92,7 @@ export async function checkBillFundWarning(params: {
   fundId: string;
   amountPence: number;
 }): Promise<{ warning: string | null }> {
-  const { orgId } = await getActiveOrg();
+  await getActiveOrg();
   const supabase = await createClient();
 
   // Check if fund is restricted
@@ -264,18 +264,60 @@ export async function getBill(billId: string) {
   return { bill, lines, error: null };
 }
 
+export async function updateBillAttachment(
+  billId: string,
+  attachmentUrl: string | null,
+): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { role } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'update', 'bills');
+  } catch (e) {
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const { data: bill } = await supabase
+    .from('bills')
+    .select('status')
+    .eq('id', billId)
+    .single();
+
+  if (!bill) return { success: false, error: 'Invoice not found.' };
+  if (bill.status === 'posted' || bill.status === 'paid') {
+    return { success: false, error: 'Cannot change evidence on a posted invoice.' };
+  }
+
+  const { error } = await admin
+    .from('bills')
+    .update({ attachment_url: attachmentUrl })
+    .eq('id', billId);
+
+  return { success: !error, error: error?.message ?? null };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Create Bill                                                        */
 /* ------------------------------------------------------------------ */
 
 export async function createBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'create', 'bills');
+    await enforcePortalPermissionForContext({ orgId, role, user }, 'submit_invoices', 'create');
+  } catch (e) {
+    redirect('/bills/new?error=' + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.'));
+  }
 
   const supplierId = formData.get('supplier_id') as string;
   const billNumber = (formData.get('bill_number') as string)?.trim() || null;
   const billDate = formData.get('bill_date') as string;
   const dueDate = (formData.get('due_date') as string) || null;
+  const attachmentUrl = (formData.get('attachment_url') as string)?.trim() || null;
   const totalStr = formData.get('total') as string;
   const linesJson = formData.get('lines') as string;
 
@@ -321,6 +363,7 @@ export async function createBill(formData: FormData) {
       bill_number: billNumber,
       bill_date: billDate,
       due_date: dueDate,
+      attachment_url: attachmentUrl,
       total_pence: totalPence,
       created_by: user.id,
     })
@@ -369,12 +412,21 @@ export async function createBill(formData: FormData) {
 
 export async function updateBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId } = await getActiveOrg();
+  const { role } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'update', 'bills');
+  } catch (e) {
+    const id = formData.get('id') as string;
+    redirect(`/bills/${id ?? ''}?error=` + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.'));
+  }
+
   const id = formData.get('id') as string;
   const supplierId = formData.get('supplier_id') as string;
   const billNumber = (formData.get('bill_number') as string)?.trim() || null;
   const billDate = formData.get('bill_date') as string;
   const dueDate = (formData.get('due_date') as string) || null;
+  const attachmentUrl = (formData.get('attachment_url') as string)?.trim() || null;
   const totalStr = formData.get('total') as string;
   const linesJson = formData.get('lines') as string;
 
@@ -411,6 +463,7 @@ export async function updateBill(formData: FormData) {
       bill_number: billNumber,
       bill_date: billDate,
       due_date: dueDate,
+      attachment_url: attachmentUrl,
       total_pence: totalPence,
     })
     .eq('id', id);
@@ -445,9 +498,16 @@ export async function updateBill(formData: FormData) {
 
 export async function approveBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const id = formData.get('id') as string;
   if (!id) redirect('/bills');
+
+  try {
+    assertCanPerform(role, 'approve', 'bills');
+    await enforcePortalPermissionForContext({ orgId, role, user }, 'submit_invoices', 'approve');
+  } catch (e) {
+    redirect(`/bills/${id}?error=` + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.'));
+  }
 
   const supabase = await createClient();
 
@@ -474,10 +534,20 @@ export async function approveBill(formData: FormData) {
 
   const { error } = await supabase
     .from('bills')
-    .update({ status: 'approved' })
+    .update({
+      status: 'approved',
+      approved_by: user.id,
+      approved_at: new Date().toISOString(),
+    })
     .eq('id', id);
 
   if (error) {
+    await logServerFailure({
+      area: 'bills',
+      event: 'approve_bill_failed',
+      error,
+      metadata: { billId: id, orgId, userId: user.id },
+    });
     redirect(`/bills/${id}?error=` + encodeURIComponent(error.message));
   }
 
@@ -490,6 +560,14 @@ export async function approveBill(formData: FormData) {
     performedBy: user.id,
   });
 
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'approve_bill',
+    entityType: 'bill',
+    entityId: id,
+  });
+
   redirect(`/bills/${id}`);
 }
 
@@ -499,158 +577,35 @@ export async function approveBill(formData: FormData) {
 
 export async function postBill(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId, user } = await getActiveOrg();
+  const { orgId, user, role } = await getActiveOrg();
   const id = formData.get('id') as string;
   if (!id) redirect('/bills');
 
-  const supabase = await createClient();
+  try {
+    assertCanPerform(role, 'post', 'bills');
+  } catch (e) {
+    redirect(`/bills/${id}?error=` + encodeURIComponent(e instanceof PermissionError ? e.message : 'Permission denied.'));
+  }
+
   const admin = createAdminClient();
+  const { error } = await admin.rpc('post_bill_atomic', {
+    p_org_id: orgId,
+    p_bill_id: id,
+    p_user_id: user.id,
+    p_environment: getAppEnv(),
+  });
 
-  // 1. Fetch bill + lines
-  const { data: bill, error: billErr } = await supabase
-    .from('bills')
-    .select('*, suppliers(name)')
-    .eq('id', id)
-    .single();
-
-  if (billErr || !bill) {
-    redirect(`/bills/${id}?error=` + encodeURIComponent(billErr?.message ?? 'Bill not found.'));
-  }
-
-  if (bill.status !== 'approved') {
-    redirect(`/bills/${id}?error=` + encodeURIComponent('Invoice must be approved before posting.'));
-  }
-
-  // Period lock check
-  const locked = await isDateInLockedPeriod(bill.bill_date);
-  if (locked) {
-    redirect(`/bills/${id}?error=` + encodeURIComponent('Cannot post: invoice date falls in a locked financial period.'));
-  }
-
-  const { data: billLines, error: linesErr } = await supabase
-    .from('bill_lines')
-    .select('*')
-    .eq('bill_id', id);
-
-  if (linesErr || !billLines || billLines.length === 0) {
-    redirect(`/bills/${id}?error=` + encodeURIComponent('No bill lines found.'));
-  }
-
-  // 2. Look up default creditors account
-  const { data: settings } = await supabase
-    .from('organisation_settings')
-    .select('default_creditors_account_id')
-    .eq('organisation_id', orgId)
-    .single();
-
-  const creditorsAccountId = settings?.default_creditors_account_id;
-  if (!creditorsAccountId) {
-    redirect(
-      `/bills/${id}?error=` +
-        encodeURIComponent(
-          'No default creditors account configured. Set it in Settings → Accounting.'
-        )
-    );
-  }
-
-  // 3. Build journal lines
-  const supplierName =
-    (bill.suppliers as { name: string } | null)?.name ?? 'Unknown supplier';
-  const memo = `Bill ${bill.bill_number ?? id.slice(0, 8)} – ${supplierName}`;
-
-  const journalLineInputs = buildJournalLinesFromBill(
-    billLines.map((bl) => ({
-      account_id: bl.account_id,
-      fund_id: bl.fund_id ?? null,
-      description: bl.description ?? null,
-      amount_pence: Number(bl.amount_pence),
-    })),
-    creditorsAccountId,
-    Number(bill.total_pence)
-  );
-
-  // 4. Create journal with source_type + source_id
-  const { data: journal, error: journalErr } = await admin
-    .from('journals')
-    .insert({
-      organisation_id: orgId,
-      journal_date: bill.bill_date,
-      memo,
-      status: 'draft',
-      source_type: 'bill',
-      source_id: id,
-      created_by: user.id,
-    })
-    .select('id')
-    .single();
-
-  if (journalErr || !journal) {
-    redirect(
-      `/bills/${id}?error=` +
-        encodeURIComponent(journalErr?.message ?? 'Failed to create journal.')
-    );
-  }
-
-  // 5. Insert journal lines (with supplier_id from bill)
-  const jRows = journalLineInputs.map((jl) => ({
-    journal_id: journal.id,
-    organisation_id: orgId,
-    account_id: jl.account_id,
-    fund_id: jl.fund_id || null,
-    supplier_id: bill.supplier_id || null,
-    description: jl.description,
-    debit_pence: jl.debit_pence,
-    credit_pence: jl.credit_pence,
-  }));
-
-  const { error: jLinesErr } = await admin.from('journal_lines').insert(jRows);
-
-  if (jLinesErr) {
-    await admin.from('journals').delete().eq('id', journal.id);
-    redirect(`/bills/${id}?error=` + encodeURIComponent(jLinesErr.message));
-  }
-
-  // 6. Post the journal
-  const { error: postErr } = await admin
-    .from('journals')
-    .update({ status: 'posted', posted_at: new Date().toISOString() })
-    .eq('id', journal.id);
-
-  if (postErr) {
-    await admin.from('journals').delete().eq('id', journal.id);
-    redirect(`/bills/${id}?error=` + encodeURIComponent(postErr.message));
-  }
-
-  // 7. Update bill status and link journal
-  const { error: billUpdateErr } = await admin
-    .from('bills')
-    .update({ status: 'posted', journal_id: journal.id })
-    .eq('id', id);
-
-  if (billUpdateErr) {
-    redirect(`/bills/${id}?error=` + encodeURIComponent(billUpdateErr.message));
+  if (error) {
+    await logServerFailure({
+      area: 'bills',
+      event: 'post_bill_failed',
+      error,
+      metadata: { billId: id, orgId, userId: user.id },
+    });
+    redirect(`/bills/${id}?error=` + encodeURIComponent(error.message));
   }
 
   invalidateOrgReportCache(orgId);
-
-  // Log approval event
-  await logApprovalEvent({
-    orgId,
-    entityType: 'bill',
-    entityId: id,
-    action: 'posted',
-    performedBy: user.id,
-  });
-
-  await logAuditEvent({
-    orgId,
-    userId: user.id,
-    action: 'post_bill',
-    entityType: 'bill',
-    entityId: id,
-    metadata: { journalId: journal.id },
-  });
-
   redirect(`/bills/${id}`);
 }
 
@@ -720,7 +675,7 @@ export async function listPaymentRuns(orgId: string, status?: string) {
 
   // Fetch item counts per run
   const runIds = (runs ?? []).map((r) => r.id);
-  let itemCounts: Record<string, number> = {};
+  const itemCounts: Record<string, number> = {};
 
   if (runIds.length > 0) {
     const { data: items } = await supabase
@@ -767,6 +722,40 @@ export async function getPaymentRun(paymentRunId: string) {
   if (runErr) return { run: null, items: null, error: runErr.message };
   if (itemsErr) return { run, items: null, error: itemsErr.message };
   return { run, items: items ?? [], error: null };
+}
+
+export async function updatePaymentRunAttachment(
+  paymentRunId: string,
+  attachmentUrl: string | null,
+): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { role } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'update', 'payment_runs');
+  } catch (e) {
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const { data: run } = await supabase
+    .from('payment_runs')
+    .select('status')
+    .eq('id', paymentRunId)
+    .single();
+
+  if (!run) return { success: false, error: 'Payment run not found.' };
+  if (run.status === 'posted') {
+    return { success: false, error: 'Cannot change evidence on a posted payment run.' };
+  }
+
+  const { error } = await admin
+    .from('payment_runs')
+    .update({ attachment_url: attachmentUrl })
+    .eq('id', paymentRunId);
+
+  return { success: !error, error: error?.message ?? null };
 }
 
 /* ------------------------------------------------------------------ */
@@ -893,7 +882,102 @@ export async function createPaymentRun(
     performedBy: user.id,
   });
 
+  const admin = createAdminClient();
+  const { data: linkedSubmissions } = await admin
+    .from('invoice_submissions')
+    .select('id, submitted_by, supplier_name')
+    .eq('organisation_id', orgId)
+    .in('bill_id', billIds);
+
+  await Promise.all((linkedSubmissions ?? []).map((submission) => createPortalNotification({
+    workspaceId: orgId,
+    userId: submission.submitted_by,
+    type: 'invoice_scheduled',
+    title: 'Invoice scheduled for payment',
+    body: `${submission.supplier_name} has been added to a payment run.`,
+    sourceType: 'invoice_submission',
+    sourceId: submission.id,
+    href: '/portal/invoices',
+  })));
+
   return { data: { id: run.id, total_pence: totalPence }, error: null };
+}
+
+export async function approvePaymentRun(
+  paymentRunId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { orgId, user, role } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'approve', 'payment_runs');
+  } catch (e) {
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const supabase = await createClient();
+  const { data: run, error: runErr } = await supabase
+    .from('payment_runs')
+    .select('id, run_date, status')
+    .eq('id', paymentRunId)
+    .single();
+
+  if (runErr || !run) {
+    await logServerFailure({
+      area: 'payment_runs',
+      event: 'approve_payment_run_load_failed',
+      error: runErr ?? new Error('Payment run not found.'),
+      metadata: { paymentRunId, orgId, userId: user.id },
+      capture: Boolean(runErr),
+    });
+    return { success: false, error: runErr?.message ?? 'Payment run not found.' };
+  }
+
+  if (run.status !== 'draft') {
+    return { success: false, error: 'Only draft payment runs can be approved.' };
+  }
+
+  const locked = await isDateInLockedPeriod(run.run_date);
+  if (locked) {
+    return { success: false, error: 'Cannot approve: payment run date falls in a locked financial period.' };
+  }
+
+  const { error } = await supabase
+    .from('payment_runs')
+    .update({
+      status: 'approved',
+      approved_by: user.id,
+      approved_at: new Date().toISOString(),
+    })
+    .eq('id', paymentRunId);
+
+  if (error) {
+    await logServerFailure({
+      area: 'payment_runs',
+      event: 'approve_payment_run_failed',
+      error,
+      metadata: { paymentRunId, orgId, userId: user.id },
+    });
+    return { success: false, error: error.message };
+  }
+
+  await logApprovalEvent({
+    orgId,
+    entityType: 'payment_run',
+    entityId: paymentRunId,
+    action: 'approved',
+    performedBy: user.id,
+  });
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'approve_payment_run',
+    entityType: 'payment_run',
+    entityId: paymentRunId,
+  });
+
+  return { success: true, error: null };
 }
 
 /* ------------------------------------------------------------------ */
@@ -914,187 +998,43 @@ export async function postPaymentRun(
     return { success: false, error: 'A bank account must be selected for the payment.' };
   }
 
-  const supabase = await createClient();
   const admin = createAdminClient();
+  const { error } = await admin.rpc('post_payment_run_atomic', {
+    p_org_id: orgId,
+    p_payment_run_id: paymentRunId,
+    p_user_id: user.id,
+    p_bank_account_id: bankAccountId,
+    p_environment: getAppEnv(),
+  });
 
-  // 1. Fetch payment run
-  const { data: run, error: runErr } = await supabase
-    .from('payment_runs')
-    .select('*')
-    .eq('id', paymentRunId)
-    .single();
-
-  if (runErr || !run) {
-    return { success: false, error: runErr?.message ?? 'Payment run not found.' };
+  if (error) {
+    await logServerFailure({
+      area: 'payment_runs',
+      event: 'post_payment_run_failed',
+      error,
+      metadata: { paymentRunId, bankAccountId, orgId, userId: user.id },
+    });
+    return { success: false, error: error.message };
   }
 
-  // Idempotency: if already posted, return success
-  if (run.status === 'posted') {
-    return { success: true, error: null };
-  }
-
-  // Period lock check
-  const locked = await isDateInLockedPeriod(run.run_date);
-  if (locked) {
-    return { success: false, error: 'Cannot post: payment run date falls in a locked financial period.' };
-  }
-
-  // 2. Fetch items + bill info
-  const { data: items, error: itemsErr } = await supabase
-    .from('payment_run_items')
-    .select('*, bills(id, bill_number, status, suppliers(name))')
-    .eq('payment_run_id', paymentRunId);
-
-  if (itemsErr || !items || items.length === 0) {
-    return { success: false, error: 'No items found in payment run.' };
-  }
-
-  // 3. Look up default creditors account
-  const { data: settings } = await supabase
-    .from('organisation_settings')
-    .select('default_creditors_account_id')
-    .eq('organisation_id', orgId)
-    .single();
-
-  const creditorsAccountId = settings?.default_creditors_account_id;
-  if (!creditorsAccountId) {
-    return {
-      success: false,
-      error: 'No default creditors account configured. Set it in Settings → Accounting.',
-    };
-  }
-
-  // 3b. Resolve bank account's linked GL account
-  const { data: bankAcct } = await supabase
-    .from('bank_accounts')
-    .select('linked_account_id')
-    .eq('id', bankAccountId)
-    .single();
-
-  const bankGlAccountId = bankAcct?.linked_account_id ?? bankAccountId;
-
-  // 4. Build journal lines
-  const totalPence = Number(run.total_pence);
-  const journalLineInputs = buildPaymentRunJournalLines(
-    items.map((item) => {
-      const bill = item.bills as { id: string; bill_number: string | null; suppliers: { name: string } | null } | null;
-      const supplierName = bill?.suppliers?.name ?? 'Unknown';
-      const billNum = bill?.bill_number ?? bill?.id?.slice(0, 8) ?? '';
-      return {
-        bill_id: item.bill_id,
-        amount_pence: Number(item.amount_pence),
-        description: `Payment – Invoice ${billNum} (${supplierName})`,
-      };
-    }),
-    creditorsAccountId,
-    bankGlAccountId,
-    totalPence
-  );
-
-  // 5. Create journal with source_type + source_id
-  const memo = `Payment Run ${paymentRunId.slice(0, 8)} – ${items.length} invoice(s)`;
-
-  const { data: journal, error: journalErr } = await admin
-    .from('journals')
-    .insert({
-      organisation_id: orgId,
-      journal_date: run.run_date,
-      memo,
-      status: 'draft',
-      source_type: 'payment',
-      source_id: paymentRunId,
-      created_by: user.id,
-    })
-    .select('id')
-    .single();
-
-  if (journalErr || !journal) {
-    return {
-      success: false,
-      error: journalErr?.message ?? 'Failed to create journal.',
-    };
-  }
-
-  // 6. Insert journal lines
-  const jRows = journalLineInputs.map((jl) => ({
-    journal_id: journal.id,
-    organisation_id: orgId,
-    account_id: jl.account_id,
-    fund_id: jl.fund_id || null,
-    description: jl.description,
-    debit_pence: jl.debit_pence,
-    credit_pence: jl.credit_pence,
-  }));
-
-  const { error: jLinesErr } = await admin.from('journal_lines').insert(jRows);
-
-  if (jLinesErr) {
-    await admin.from('journals').delete().eq('id', journal.id);
-    return { success: false, error: jLinesErr.message };
-  }
-
-  // 7. Post the journal
-  const { error: postErr } = await admin
-    .from('journals')
-    .update({ status: 'posted', posted_at: new Date().toISOString() })
-    .eq('id', journal.id);
-
-  if (postErr) {
-    await admin.from('journals').delete().eq('id', journal.id);
-    return { success: false, error: postErr.message };
-  }
-
-  // 8. Update payment run status + link journal + bank_account_id
-  const { error: prUpdateErr } = await admin
-    .from('payment_runs')
-    .update({ status: 'posted', journal_id: journal.id, bank_account_id: bankAccountId })
-    .eq('id', paymentRunId);
-
-  if (prUpdateErr) {
-    return { success: false, error: prUpdateErr.message };
-  }
-
-  // 9. Mark all bills as 'paid'
-  const billIds = items.map((item) => item.bill_id);
-  const { error: billsUpdateErr } = await admin
-    .from('bills')
-    .update({ status: 'paid' })
-    .in('id', billIds);
-
-  if (billsUpdateErr) {
-    return { success: false, error: billsUpdateErr.message };
-  }
-
-  // Invalidate report caches since a payment run journal was posted
   invalidateOrgReportCache(orgId);
 
-  await logAuditEvent({
-    orgId,
-    userId: user.id,
-    action: 'post_payment_run',
-    entityType: 'payment_run',
-    entityId: paymentRunId,
-    metadata: { journalId: journal.id, billCount: items.length },
-  });
+  const { data: paidSubmissions } = await admin
+    .from('invoice_submissions')
+    .select('id, submitted_by, supplier_name')
+    .eq('organisation_id', orgId)
+    .eq('payment_run_id', paymentRunId);
 
-  // Log approval events for payment run and each paid bill
-  await logApprovalEvent({
-    orgId,
-    entityType: 'payment_run',
-    entityId: paymentRunId,
-    action: 'posted',
-    performedBy: user.id,
-  });
-
-  for (const bId of billIds) {
-    await logApprovalEvent({
-      orgId,
-      entityType: 'bill',
-      entityId: bId,
-      action: 'paid',
-      performedBy: user.id,
-    });
-  }
+  await Promise.all((paidSubmissions ?? []).map((submission) => createPortalNotification({
+    workspaceId: orgId,
+    userId: submission.submitted_by,
+    type: 'invoice_paid',
+    title: 'Invoice paid',
+    body: `${submission.supplier_name} has been marked as paid.`,
+    sourceType: 'invoice_submission',
+    sourceId: submission.id,
+    href: '/portal/invoices',
+  })));
 
   return { success: true, error: null };
 }

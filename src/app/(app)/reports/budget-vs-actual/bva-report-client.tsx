@@ -3,6 +3,10 @@
 import { useState, useTransition, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { ReportShell } from '@/components/reports/report-shell';
+import { ReportEmptyState } from '@/components/reports/report-empty-state';
+import { DrillDownDialog, type DrillDownParams } from '@/components/reports/drill-down-dialog';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
+import { ReportTableCard } from '@/components/reports/report-table-card';
 import { MONTH_KEYS } from '@/lib/budgets/budgetMath';
 import { getBudgetVsActualReport } from '@/lib/reports/actions';
 import type { BvaReportData, SBvaRow, SMonthCell, SBvaTotals } from '@/lib/reports/types';
@@ -16,6 +20,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { buildBudgetInsights } from '@/lib/reports/insights';
+import {
+  buildDateScope,
+  buildFundFilterLabel,
+  formatCurrencyFromPence,
+  type ReportDefinition,
+  type ReportKpi,
+  type ReportMetadata,
+} from '@/lib/reports/framework';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -27,7 +40,7 @@ const MONTH_LABELS = [
 ];
 
 const SELECT_CLASS =
-  'flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -123,7 +136,6 @@ function downloadCsv(csv: string, filename: string) {
 interface Props {
   initialData: BvaReportData | null;
   orgId: string;
-  role: string;
   initialYear: number;
   error?: string | null;
 }
@@ -132,7 +144,7 @@ interface Props {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function BvaReportClient({ initialData, orgId, role, initialYear, error }: Props) {
+export function BvaReportClient({ initialData, orgId, initialYear, error }: Props) {
   const [data, setData] = useState<BvaReportData | null>(initialData);
   const [year, setYear] = useState(initialYear);
   const [budgetId, setBudgetId] = useState<string>(
@@ -142,6 +154,7 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
   const [period, setPeriod] = useState<'YTD' | 'MTD'>('YTD');
   const [monthIndex, setMonthIndex] = useState(new Date().getMonth() + 1);
   const [isPending, startTransition] = useTransition();
+  const [drillDown, setDrillDown] = useState<DrillDownParams | null>(null);
 
   /* ---- Derived state ---- */
   const activeFundId = fundId === 'all' ? undefined : fundId;
@@ -226,6 +239,93 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
 
   /* ---- Period label for the table header ---- */
   const periodLabel = period === 'YTD' ? 'Year to Date' : MONTH_LABELS[monthIndex - 1];
+  const selectedBudget = budgets.find((budget) => budget.id === budgetId) ?? budgets[0];
+
+  const metadata: ReportMetadata | undefined = data
+    ? {
+        scope:
+          period === 'YTD'
+            ? buildDateScope({ year, ytd: true })
+            : buildDateScope({ year, month: monthIndex }),
+        comparison: 'Budget compared with posted actuals for the same scope',
+        source: 'Approved budget lines combined with posted ledger actuals.',
+        filters: [
+          { label: 'Budget', value: selectedBudget?.name ?? 'No budget selected' },
+          { label: 'Fund', value: buildFundFilterLabel(activeFundId ?? null, funds, 'General / all funds') },
+          { label: 'View', value: periodLabel },
+        ],
+        footnotes: [
+          {
+            text: 'Variance direction depends on account type: positive expense variance is adverse, negative income variance is adverse.',
+          },
+          {
+            text: 'Click an account row to inspect the supporting transactions for the selected scope.',
+          },
+        ],
+      }
+    : undefined;
+
+  const currentTotals =
+    totals && period === 'MTD' ? totals.months[MONTH_KEYS[monthIndex - 1]] : totals?.ytd;
+
+  const kpis: ReportKpi[] | undefined = currentTotals
+    ? [
+        {
+          label: 'Budget',
+          value: formatCurrencyFromPence(currentTotals.budget),
+        },
+        {
+          label: 'Actual',
+          value: formatCurrencyFromPence(currentTotals.actual),
+        },
+        {
+          label: 'Variance',
+          value: formatCurrencyFromPence(currentTotals.variance),
+          tone: currentTotals.variance <= 0 ? 'positive' : 'caution',
+        },
+        {
+          label: 'Variance %',
+          value: pctDisplay(currentTotals.variancePct),
+          helper: 'Calculated against the selected budget scope.',
+          tone: currentTotals.variancePct !== null && currentTotals.variancePct <= 0 ? 'positive' : 'neutral',
+        },
+      ]
+    : undefined;
+
+  const definitions: ReportDefinition[] = [
+    {
+      term: 'Budget',
+      meaning: 'Planned spend or income for the selected report scope.',
+    },
+    {
+      term: 'Actual',
+      meaning: 'Posted ledger movement for the same account and scope.',
+    },
+    {
+      term: 'Adverse variance',
+      meaning: 'Expense higher than budget or income lower than budget.',
+    },
+  ];
+
+  const openDrillDown = (selectedRow: SBvaRow) => {
+    const isMtd = period === 'MTD';
+    const startDate = isMtd
+      ? `${year}-${String(monthIndex).padStart(2, '0')}-01`
+      : `${year}-01-01`;
+    const endDate = isMtd
+      ? `${year}-${String(monthIndex).padStart(2, '0')}-${String(new Date(year, monthIndex, 0).getDate()).padStart(2, '0')}`
+      : `${year}-${String(monthIndex).padStart(2, '0')}-${String(new Date(year, monthIndex, 0).getDate()).padStart(2, '0')}`;
+
+    setDrillDown({
+      organisationId: orgId,
+      accountId: selectedRow.accountId,
+      accountName: selectedRow.accountName,
+      startDate,
+      endDate,
+      fundId: activeFundId,
+      title: `Budget variance support for ${selectedRow.accountName}`,
+    });
+  };
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
@@ -240,10 +340,9 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
       description="Compare planned budget to actual results."
       activeReport="/reports/budget-vs-actual"
       action={
-        <div className="flex flex-wrap items-end gap-3">
-        {/* Year */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Year</span>
+        <ReportFilterBar>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Year</span>
           <select
             className={SELECT_CLASS}
             value={year}
@@ -255,9 +354,8 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
           </select>
         </label>
 
-        {/* Budget */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Budget</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Budget</span>
           <select
             className={SELECT_CLASS}
             value={budgetId}
@@ -272,9 +370,8 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
           </select>
         </label>
 
-        {/* Fund */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Fund</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Fund</span>
           <select
             className={SELECT_CLASS}
             value={fundId}
@@ -287,9 +384,8 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
           </select>
         </label>
 
-        {/* Period */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Period</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Period</span>
           <select
             className={SELECT_CLASS}
             value={period}
@@ -302,8 +398,8 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
 
         {/* Month (only when MTD) */}
         {period === 'MTD' && (
-          <label className="space-y-1">
-            <span className="text-xs font-medium">Month</span>
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Month</span>
             <select
               className={SELECT_CLASS}
               value={monthIndex}
@@ -320,14 +416,19 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
         <Button
           variant="outline"
           size="sm"
+          className="h-10 self-end rounded-xl"
           onClick={handleExportCsv}
           disabled={rows.length === 0}
         >
           Export CSV
         </Button>
-        </div>
+        </ReportFilterBar>
       }
       error={error}
+      metadata={metadata}
+      kpis={kpis}
+      insights={data ? buildBudgetInsights(data, period, MONTH_KEYS[monthIndex - 1]) : undefined}
+      definitions={definitions}
     >
       {/* ---- Loading indicator ---- */}
       {isPending && (
@@ -336,14 +437,18 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
 
       {/* ---- Empty state ---- */}
       {!isPending && rows.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          No budget data found for {year}. Create a budget first.
-        </p>
+        <ReportEmptyState
+          title="No budget data found"
+          description={`No budget data was found for ${year}. Create and approve a budget before using this report.`}
+        />
       )}
 
       {/* ---- Table ---- */}
       {rows.length > 0 && totals && (
-        <div className="rounded-2xl border shadow-sm overflow-x-auto">
+        <ReportTableCard
+          title="Budget Analysis"
+          description={`Showing ${periodLabel} variance across income and expense accounts.`}
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -365,7 +470,13 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
               {rows
                 .filter((r) => r.accountType === 'income')
                 .map((row) => (
-                  <BvaTableRow key={row.accountId} row={row} period={period} monthIndex={monthIndex} />
+                  <BvaTableRow
+                    key={row.accountId}
+                    row={row}
+                    period={period}
+                    monthIndex={monthIndex}
+                    onDrillDown={openDrillDown}
+                  />
                 ))}
 
               {/* ---- Expense section ---- */}
@@ -377,14 +488,20 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
               {rows
                 .filter((r) => r.accountType === 'expense')
                 .map((row) => (
-                  <BvaTableRow key={row.accountId} row={row} period={period} monthIndex={monthIndex} />
+                  <BvaTableRow
+                    key={row.accountId}
+                    row={row}
+                    period={period}
+                    monthIndex={monthIndex}
+                    onDrillDown={openDrillDown}
+                  />
                 ))}
 
               {/* ---- Totals ---- */}
               <TotalsRow totals={totals} period={period} monthIndex={monthIndex} />
             </TableBody>
           </Table>
-        </div>
+        </ReportTableCard>
       )}
 
       {/* ---- Period label ---- */}
@@ -393,6 +510,8 @@ export function BvaReportClient({ initialData, orgId, role, initialYear, error }
           Showing: {periodLabel} {year}
         </p>
       )}
+
+      <DrillDownDialog params={drillDown} onClose={() => setDrillDown(null)} />
     </ReportShell>
   );
 }
@@ -405,18 +524,20 @@ function BvaTableRow({
   row,
   period,
   monthIndex,
+  onDrillDown,
 }: {
   row: SBvaRow;
   period: 'YTD' | 'MTD';
   monthIndex: number;
+  onDrillDown: (row: SBvaRow) => void;
 }) {
   const cell = pickCell(row, period, monthIndex);
   const adverse = isAdverse(row.accountType, cell.variance);
 
   return (
-    <TableRow>
+    <TableRow className="cursor-pointer hover:bg-primary/5" onClick={() => onDrillDown(row)}>
       <TableCell className="font-mono text-xs">{row.accountCode}</TableCell>
-      <TableCell>{row.accountName}</TableCell>
+      <TableCell className="text-primary hover:underline">{row.accountName}</TableCell>
       <TableCell className="text-right tabular-nums">
         {penceToPounds(cell.budget)}
       </TableCell>

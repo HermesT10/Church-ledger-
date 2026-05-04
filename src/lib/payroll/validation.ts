@@ -11,8 +11,13 @@
 export interface PayrollInputs {
   netPence: number;
   payePence: number;
-  nicPence: number;
-  pensionPence: number;
+  nicPence: number; // Backwards-compatible employer NIC field.
+  pensionPence: number; // Backwards-compatible employer pension field.
+  employeeNicPence?: number;
+  employerNicPence?: number;
+  employeePensionPence?: number;
+  employerPensionPence?: number;
+  otherDeductionsPence?: number;
   grossPence?: number; // optional — auto-computed if omitted or 0
 }
 
@@ -55,6 +60,22 @@ export function computeGross(netPence: number, payePence: number): number {
   return netPence + payePence;
 }
 
+export function computePayrollGross(inputs: {
+  netPence: number;
+  payePence: number;
+  employeeNicPence?: number;
+  employeePensionPence?: number;
+  otherDeductionsPence?: number;
+}): number {
+  return (
+    inputs.netPence +
+    inputs.payePence +
+    (inputs.employeeNicPence ?? 0) +
+    (inputs.employeePensionPence ?? 0) +
+    (inputs.otherDeductionsPence ?? 0)
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  validatePayrollInputs                                              */
 /* ------------------------------------------------------------------ */
@@ -70,17 +91,22 @@ export function validatePayrollInputs(
   if (inputs.payePence < 0) errors.push('PAYE cannot be negative.');
   if (inputs.nicPence < 0) errors.push('Employer NIC cannot be negative.');
   if (inputs.pensionPence < 0) errors.push('Pension cannot be negative.');
+  if ((inputs.employeeNicPence ?? 0) < 0) errors.push('Employee NIC cannot be negative.');
+  if ((inputs.employerNicPence ?? inputs.nicPence) < 0) errors.push('Employer NIC cannot be negative.');
+  if ((inputs.employeePensionPence ?? 0) < 0) errors.push('Employee pension cannot be negative.');
+  if ((inputs.employerPensionPence ?? inputs.pensionPence) < 0) errors.push('Employer pension cannot be negative.');
+  if ((inputs.otherDeductionsPence ?? 0) < 0) errors.push('Other deductions cannot be negative.');
 
-  const expectedGross = computeGross(inputs.netPence, inputs.payePence);
+  const expectedGross = computePayrollGross(inputs);
 
-  // If gross is provided and non-zero, it must equal net + paye
+  // If gross is provided and non-zero, it must equal net pay plus employee deductions.
   if (
     inputs.grossPence !== undefined &&
     inputs.grossPence !== 0 &&
     inputs.grossPence !== expectedGross
   ) {
     errors.push(
-      `Gross (${inputs.grossPence}) must equal net + PAYE (${expectedGross}).`,
+      `Gross (${inputs.grossPence}) must equal net pay plus employee deductions (${expectedGross}).`,
     );
   }
 
@@ -118,6 +144,11 @@ export function buildPayrollJournalLines(params: {
   payePence: number;
   nicPence: number;
   pensionPence: number;
+  employeeNicPence?: number;
+  employerNicPence?: number;
+  employeePensionPence?: number;
+  employerPensionPence?: number;
+  otherDeductionsPence?: number;
   splits?: PayrollSplit[];
   accountIds: PayrollAccountIds;
 }): JournalLineOutput[] {
@@ -125,11 +156,13 @@ export function buildPayrollJournalLines(params: {
     grossPence,
     netPence,
     payePence,
-    nicPence,
-    pensionPence,
     splits,
     accountIds,
   } = params;
+  const employeeNicPence = params.employeeNicPence ?? 0;
+  const employerNicPence = params.employerNicPence ?? params.nicPence;
+  const employeePensionPence = params.employeePensionPence ?? 0;
+  const employerPensionPence = params.employerPensionPence ?? params.pensionPence;
 
   const lines: JournalLineOutput[] = [];
 
@@ -153,8 +186,8 @@ export function buildPayrollJournalLines(params: {
       }
 
       // Employer NIC expense (proportional)
-      if (nicPence > 0) {
-        const nicShare = Math.round(nicPence * proportion);
+      if (employerNicPence > 0) {
+        const nicShare = Math.round(employerNicPence * proportion);
         if (nicShare > 0) {
           lines.push({
             accountId: accountIds.erNicAccountId,
@@ -167,8 +200,8 @@ export function buildPayrollJournalLines(params: {
       }
 
       // Pension expense (proportional)
-      if (pensionPence > 0) {
-        const pensionShare = Math.round(pensionPence * proportion);
+      if (employerPensionPence > 0) {
+        const pensionShare = Math.round(employerPensionPence * proportion);
         if (pensionShare > 0) {
           lines.push({
             accountId: accountIds.pensionAccountId,
@@ -192,27 +225,27 @@ export function buildPayrollJournalLines(params: {
       if (firstSalary) firstSalary.debitPence += grossPence - salaryTotal;
     }
 
-    if (nicPence > 0) {
+    if (employerNicPence > 0) {
       const nicTotal = lines
         .filter((l) => l.accountId === accountIds.erNicAccountId)
         .reduce((sum, l) => sum + l.debitPence, 0);
-      if (nicTotal !== nicPence) {
+      if (nicTotal !== employerNicPence) {
         const firstNic = lines.find(
           (l) => l.accountId === accountIds.erNicAccountId,
         );
-        if (firstNic) firstNic.debitPence += nicPence - nicTotal;
+        if (firstNic) firstNic.debitPence += employerNicPence - nicTotal;
       }
     }
 
-    if (pensionPence > 0) {
+    if (employerPensionPence > 0) {
       const pensionTotal = lines
         .filter((l) => l.accountId === accountIds.pensionAccountId)
         .reduce((sum, l) => sum + l.debitPence, 0);
-      if (pensionTotal !== pensionPence) {
+      if (pensionTotal !== employerPensionPence) {
         const firstPension = lines.find(
           (l) => l.accountId === accountIds.pensionAccountId,
         );
-        if (firstPension) firstPension.debitPence += pensionPence - pensionTotal;
+        if (firstPension) firstPension.debitPence += employerPensionPence - pensionTotal;
       }
     }
   } else {
@@ -225,20 +258,20 @@ export function buildPayrollJournalLines(params: {
       memo: 'Salaries expense',
     });
 
-    if (nicPence > 0) {
+    if (employerNicPence > 0) {
       lines.push({
         accountId: accountIds.erNicAccountId,
-        debitPence: nicPence,
+        debitPence: employerNicPence,
         creditPence: 0,
         fundId: null,
         memo: 'Employer NIC expense',
       });
     }
 
-    if (pensionPence > 0) {
+    if (employerPensionPence > 0) {
       lines.push({
         accountId: accountIds.pensionAccountId,
-        debitPence: pensionPence,
+        debitPence: employerPensionPence,
         creditPence: 0,
         fundId: null,
         memo: 'Pension expense',
@@ -249,7 +282,7 @@ export function buildPayrollJournalLines(params: {
   // --- Credit side: Liability lines (never split by fund) ---
 
   // PAYE/NIC Liability = paye + nic (employer NIC is paid to HMRC together with PAYE)
-  const payeNicTotal = payePence + nicPence;
+  const payeNicTotal = payePence + employeeNicPence + employerNicPence;
   if (payeNicTotal > 0) {
     lines.push({
       accountId: accountIds.payeNicLiabilityId,
@@ -261,11 +294,12 @@ export function buildPayrollJournalLines(params: {
   }
 
   // Pension Liability
-  if (pensionPence > 0) {
+  const pensionLiabilityPence = employeePensionPence + employerPensionPence;
+  if (pensionLiabilityPence > 0) {
     lines.push({
       accountId: accountIds.pensionLiabilityId,
       debitPence: 0,
-      creditPence: pensionPence,
+      creditPence: pensionLiabilityPence,
       fundId: null,
       memo: 'Pension liability',
     });

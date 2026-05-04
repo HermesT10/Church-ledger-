@@ -3,6 +3,10 @@
 import { useState, useTransition, useCallback } from 'react';
 import { toast } from 'sonner';
 import { ReportShell } from '@/components/reports/report-shell';
+import { ReportEmptyState } from '@/components/reports/report-empty-state';
+import { DrillDownDialog, type DrillDownParams } from '@/components/reports/drill-down-dialog';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
+import { ReportTableCard } from '@/components/reports/report-table-card';
 import { getFundMovementsReport } from '@/lib/reports/actions';
 import type { SFMReport, SFMFundRow } from '@/lib/reports/types';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +20,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { buildFundInsights } from '@/lib/reports/insights';
+import {
+  buildDateScope,
+  formatCurrencyFromPence,
+  type ReportDefinition,
+  type ReportKpi,
+  type ReportMetadata,
+} from '@/lib/reports/framework';
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                                */
@@ -37,7 +49,7 @@ const MONTH_LABELS = [
 ];
 
 const SELECT_CLASS =
-  'flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 function penceToPounds(pence: number): string {
   if (pence === 0) return '—';
@@ -162,6 +174,7 @@ export function FundMovementsClient({
   const [month, setMonth] = useState(new Date().getMonth() + 1); // 1-based
   const [fundFilter, setFundFilter] = useState('ALL');
   const [isPending, startTransition] = useTransition();
+  const [drillDown, setDrillDown] = useState<DrillDownParams | null>(null);
 
   const hasData = data && data.funds.length > 0;
 
@@ -258,6 +271,68 @@ export function FundMovementsClient({
       ? `${MONTH_LABELS[data.period.month - 1]} ${data.period.year}`
       : `YTD ${data?.period.year ?? year}`;
 
+  const metadata: ReportMetadata | undefined = data
+    ? {
+        scope: buildDateScope({
+          startDate: data.period.startDate,
+          endDate: data.period.endDate,
+        }),
+        comparison: 'Opening balance + income - expenditure = closing balance',
+        source: 'Posted journal lines with fund allocation.',
+        filters: [
+          { label: 'Mode', value: mode === 'MONTH' ? 'Single month' : 'Year to date' },
+          { label: 'Period', value: periodDesc },
+          { label: 'Fund filter', value: fundFilter },
+        ],
+        footnotes: [
+          {
+            text: 'Fund movements reflect only transactions that have been posted and allocated to a fund.',
+          },
+          {
+            text: 'Click any fund row to inspect the posted movement behind that balance change.',
+          },
+        ],
+      }
+    : undefined;
+
+  const kpis: ReportKpi[] | undefined = data
+    ? [
+        {
+          label: 'Opening',
+          value: formatCurrencyFromPence(data.totals.openingBalancePence),
+        },
+        {
+          label: 'Income',
+          value: formatCurrencyFromPence(data.totals.incomePence),
+          tone: 'positive',
+        },
+        {
+          label: 'Expenditure',
+          value: formatCurrencyFromPence(data.totals.expenditurePence),
+        },
+        {
+          label: 'Closing',
+          value: formatCurrencyFromPence(data.totals.closingBalancePence),
+          tone: data.totals.closingBalancePence >= 0 ? 'positive' : 'caution',
+        },
+      ]
+    : undefined;
+
+  const definitions: ReportDefinition[] = [
+    {
+      term: 'Opening balance',
+      meaning: 'The balance carried into the selected period.',
+    },
+    {
+      term: 'Net movement',
+      meaning: 'Income minus expenditure for the selected scope.',
+    },
+    {
+      term: 'Closing balance',
+      meaning: 'The opening balance adjusted for all posted movement in the selected scope.',
+    },
+  ];
+
   /* ---- Year range ---- */
   const years: number[] = [];
   for (let y = defaultYear - 5; y <= defaultYear + 1; y++) {
@@ -272,10 +347,10 @@ export function FundMovementsClient({
       description="Opening balances, income, expenditure, and closing balances per fund."
       activeReport="/reports/fund-movements"
       action={
-        <div className="flex flex-wrap items-end gap-3">
+        <ReportFilterBar>
         {/* Year */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Year</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Year</span>
           <select
             className={SELECT_CLASS}
             value={year}
@@ -290,8 +365,8 @@ export function FundMovementsClient({
         </label>
 
         {/* Mode */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Mode</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Mode</span>
           <select
             className={SELECT_CLASS}
             value={mode}
@@ -304,8 +379,8 @@ export function FundMovementsClient({
 
         {/* Month (only when mode=MONTH) */}
         {mode === 'MONTH' && (
-          <label className="space-y-1">
-            <span className="text-xs font-medium">Month</span>
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Month</span>
             <select
               className={SELECT_CLASS}
               value={month}
@@ -321,8 +396,8 @@ export function FundMovementsClient({
         )}
 
         {/* Fund filter */}
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Fund</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Fund</span>
           <select
             className={SELECT_CLASS}
             value={fundFilter}
@@ -344,14 +419,19 @@ export function FundMovementsClient({
         <Button
           variant="outline"
           size="sm"
+          className="h-10 self-end rounded-xl"
           onClick={handleExportCsv}
           disabled={!hasData}
         >
           Export CSV
         </Button>
-        </div>
+        </ReportFilterBar>
       }
       error={error}
+      metadata={metadata}
+      kpis={kpis}
+      insights={data ? buildFundInsights(data) : undefined}
+      definitions={definitions}
     >
       {/* ---- Loading ---- */}
       {isPending && (
@@ -360,15 +440,18 @@ export function FundMovementsClient({
 
       {/* ---- Empty state ---- */}
       {!isPending && !hasData && (
-        <p className="text-sm text-muted-foreground">
-          No fund movement data for this period. Post journals with fund
-          allocations to see balances.
-        </p>
+        <ReportEmptyState
+          title="No fund movement data for this period"
+          description="Post journals with fund allocations to see balances and movements here."
+        />
       )}
 
       {/* ---- Table ---- */}
       {hasData && data && (
-        <div className="rounded-2xl border shadow-sm overflow-x-auto">
+        <ReportTableCard
+          title="Fund Movement Schedule"
+          description={`Opening balances, activity, and closing balances for ${periodDesc}.`}
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -383,7 +466,20 @@ export function FundMovementsClient({
             </TableHeader>
             <TableBody>
               {data.funds.map((row) => (
-                <FundRow key={row.fundId} row={row} />
+                <FundRow
+                  key={row.fundId}
+                  row={row}
+                  onDrillDown={(selectedRow) =>
+                    setDrillDown({
+                      organisationId: orgId,
+                      fundId: selectedRow.fundId,
+                      fundName: selectedRow.fundName,
+                      startDate: data.period.startDate,
+                      endDate: data.period.endDate,
+                      title: `Fund movements supporting ${selectedRow.fundName}`,
+                    })
+                  }
+                />
               ))}
 
               {/* Totals */}
@@ -408,7 +504,7 @@ export function FundMovementsClient({
               </TableRow>
             </TableBody>
           </Table>
-        </div>
+        </ReportTableCard>
       )}
 
       {/* ---- Summary cards ---- */}
@@ -453,6 +549,8 @@ export function FundMovementsClient({
           {data.period.endDate}
         </p>
       )}
+
+      <DrillDownDialog params={drillDown} onClose={() => setDrillDown(null)} />
     </ReportShell>
   );
 }
@@ -461,10 +559,16 @@ export function FundMovementsClient({
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-function FundRow({ row }: { row: SFMFundRow }) {
+function FundRow({
+  row,
+  onDrillDown,
+}: {
+  row: SFMFundRow;
+  onDrillDown: (row: SFMFundRow) => void;
+}) {
   return (
-    <TableRow>
-      <TableCell className="font-medium">{row.fundName}</TableCell>
+    <TableRow className="cursor-pointer hover:bg-primary/5" onClick={() => onDrillDown(row)}>
+      <TableCell className="font-medium text-primary hover:underline">{row.fundName}</TableCell>
       <TableCell>
         <FundTypeBadge type={row.fundType} />
       </TableCell>

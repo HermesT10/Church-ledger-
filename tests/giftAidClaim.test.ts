@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildGiftAidCsv,
+  buildGiftAidHmrcRow,
   buildClaimPreview,
-  penceToPounds,
   type GiftAidCsvRow,
   type ClaimPreviewDonation,
   type EligibilityDeclaration,
+  penceToPounds,
 } from '@/lib/giftaid/eligibility';
 
 /* ------------------------------------------------------------------ */
@@ -14,12 +15,13 @@ import {
 
 function makeRow(overrides: Partial<GiftAidCsvRow> = {}): GiftAidCsvRow {
   return {
-    donorName: 'John Smith',
-    address: '123 Church Lane',
+    title: 'Mr',
+    firstNameOrInitial: 'John',
+    lastName: 'Smith',
+    houseNameOrNumber: '123',
     postcode: 'AB1 2CD',
     donationDate: '2025-06-15',
     amountPounds: '20.00',
-    claimablePounds: '5.00',
     ...overrides,
   };
 }
@@ -70,16 +72,16 @@ describe('penceToPounds', () => {
 describe('buildGiftAidCsv', () => {
   it('correct header and row count -- 3 rows produces 4 lines', () => {
     const rows = [
-      makeRow({ donorName: 'Alice' }),
-      makeRow({ donorName: 'Bob' }),
-      makeRow({ donorName: 'Carol' }),
+      makeRow({ firstNameOrInitial: 'Alice', lastName: 'Jones' }),
+      makeRow({ firstNameOrInitial: 'Bob', lastName: 'Green' }),
+      makeRow({ firstNameOrInitial: 'Carol', lastName: 'White' }),
     ];
     const csv = buildGiftAidCsv(rows);
     const lines = csv.split('\n');
 
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
-      'Donor Name,Address,Postcode,Donation Date,Amount,Gift Aid Claimable'
+      'Title,First Name or Initial,Last Name,House Name or Number,Postcode,Donation Date,Amount'
     );
     expect(lines[1]).toContain('Alice');
     expect(lines[2]).toContain('Bob');
@@ -88,23 +90,23 @@ describe('buildGiftAidCsv', () => {
 
   it('escapes commas in fields with double-quote wrapping', () => {
     const rows = [
-      makeRow({ address: '10 High Street, Flat 2, London' }),
+      makeRow({ houseNameOrNumber: '10 High Street, Flat 2, London' }),
     ];
     const csv = buildGiftAidCsv(rows);
     const lines = csv.split('\n');
 
-    // The address field should be wrapped in double quotes
+    // The house name/number field should be wrapped in double quotes
     expect(lines[1]).toContain('"10 High Street, Flat 2, London"');
   });
 
   it('escapes double quotes in fields by doubling them', () => {
     const rows = [
-      makeRow({ donorName: 'John "Johnny" Smith' }),
+      makeRow({ lastName: 'Smith "Johnny"' }),
     ];
     const csv = buildGiftAidCsv(rows);
     const lines = csv.split('\n');
 
-    expect(lines[1]).toContain('"John ""Johnny"" Smith"');
+    expect(lines[1]).toContain('"Smith ""Johnny"""');
   });
 
   it('empty rows -- returns just the header line', () => {
@@ -113,8 +115,36 @@ describe('buildGiftAidCsv', () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0]).toBe(
-      'Donor Name,Address,Postcode,Donation Date,Amount,Gift Aid Claimable'
+      'Title,First Name or Initial,Last Name,House Name or Number,Postcode,Donation Date,Amount'
     );
+  });
+});
+
+describe('buildGiftAidHmrcRow', () => {
+  it('maps donor and donation fields to HMRC export columns', () => {
+    const row = buildGiftAidHmrcRow({
+      donor: {
+        title: 'Mrs',
+        full_name: 'Jane Smith',
+        first_name: 'Jane',
+        last_name: 'Smith',
+        house_name_or_number: '42A',
+        address: '42A Church Road',
+        postcode: 'ZZ1 2YY',
+      },
+      donationDate: '2025-06-15',
+      amountPence: 2500,
+    });
+
+    expect(row).toEqual({
+      title: 'Mrs',
+      firstNameOrInitial: 'Jane',
+      lastName: 'Smith',
+      houseNameOrNumber: '42A',
+      postcode: 'ZZ1 2YY',
+      donationDate: '2025-06-15',
+      amountPounds: '25.00',
+    });
   });
 });
 

@@ -10,7 +10,7 @@ import {
   deleteAccount,
 } from '@/lib/accounts/actions';
 import type { AccountRow } from '@/lib/accounts/types';
-import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '@/lib/accounts/types';
+import { ACCOUNT_TYPES_NAV, ACCOUNT_TYPE_LABELS } from '@/lib/accounts/types';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -102,11 +102,11 @@ function EditForm({ account, canEdit, parentCandidates, hasTransactions }: Props
               id="type"
               name="type"
               required
-              defaultValue={account.type}
+              defaultValue={account.type === 'equity' ? 'fund_balance' : account.type}
               disabled={!canEdit}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {ACCOUNT_TYPES.map((t) => (
+              {ACCOUNT_TYPES_NAV.map((t) => (
                 <option key={t} value={t}>
                   {ACCOUNT_TYPE_LABELS[t]}
                 </option>

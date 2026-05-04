@@ -11,6 +11,7 @@ export default function AcceptInvitePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
+  const missingToken = !token;
 
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
@@ -18,8 +19,6 @@ export default function AcceptInvitePage() {
 
   useEffect(() => {
     if (!token) {
-      setStatus('error');
-      setMessage('No invite token provided.');
       return;
     }
 
@@ -52,39 +51,42 @@ export default function AcceptInvitePage() {
     };
   }, [token, router]);
 
+  const displayStatus = missingToken ? 'error' : status;
+  const displayMessage = missingToken ? 'No invite token provided.' : message;
+
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">
-            {status === 'loading' && 'Accepting Invite…'}
-            {status === 'success' && 'Welcome!'}
-            {status === 'error' && 'Invite Error'}
+            {displayStatus === 'loading' && 'Accepting Invite…'}
+            {displayStatus === 'success' && 'Welcome!'}
+            {displayStatus === 'error' && 'Invite Error'}
           </CardTitle>
           <CardDescription>
-            {status === 'loading' && 'Please wait while we process your invite.'}
-            {status === 'success' && (orgName ? `You've been added to ${orgName}.` : "You've been added to the organisation.")}
-            {status === 'error' && 'We could not process this invite.'}
+            {displayStatus === 'loading' && 'Please wait while we process your invite.'}
+            {displayStatus === 'success' && (orgName ? `You've been added to ${orgName}.` : "You've been added to the organisation.")}
+            {displayStatus === 'error' && 'We could not process this invite.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
-          {status === 'loading' && (
+          {displayStatus === 'loading' && (
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           )}
-          {status === 'success' && (
+          {displayStatus === 'success' && (
             <CheckCircle2 className="h-10 w-10 text-green-500" />
           )}
-          {status === 'error' && (
+          {displayStatus === 'error' && (
             <>
               <XCircle className="h-10 w-10 text-red-500" />
-              <p className="text-sm text-muted-foreground text-center">{message}</p>
+              <p className="text-sm text-muted-foreground text-center">{displayMessage}</p>
               <Button onClick={() => router.push('/dashboard')} variant="outline">
                 Go to Dashboard
               </Button>
             </>
           )}
-          {status === 'success' && (
-            <p className="text-sm text-muted-foreground">{message}</p>
+          {displayStatus === 'success' && (
+            <p className="text-sm text-muted-foreground">{displayMessage}</p>
           )}
         </CardContent>
       </Card>

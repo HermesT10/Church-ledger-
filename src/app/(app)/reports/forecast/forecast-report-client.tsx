@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -30,7 +31,7 @@ const MONTH_LABELS = [
 ];
 
 const SELECT_CLASS =
-  'flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -217,9 +218,9 @@ export function ForecastReportClient({
       description="Year-end projection based on trend and baseline."
       activeReport="/reports/forecast"
       action={
-        <div className="flex flex-wrap items-end gap-3">
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Year</span>
+        <ReportFilterBar>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Year</span>
           <select
             className={SELECT_CLASS}
             value={year}
@@ -233,8 +234,8 @@ export function ForecastReportClient({
           </select>
         </label>
 
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Fund</span>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">Fund</span>
           <select
             className={SELECT_CLASS}
             value={fundId}
@@ -252,12 +253,13 @@ export function ForecastReportClient({
         <Button
           variant="outline"
           size="sm"
+          className="h-10 self-end rounded-xl"
           onClick={handleExportCsv}
           disabled={rows.length === 0}
         >
           Export CSV
         </Button>
-        </div>
+        </ReportFilterBar>
       }
       error={error}
     >

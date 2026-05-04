@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertWriteAllowed } from '@/lib/demo';
+import { trackProductEvent } from '@/lib/analytics/server';
 
 export async function onboard(formData: FormData) {
   await assertWriteAllowed();
@@ -30,7 +31,13 @@ export async function onboard(formData: FormData) {
   // 1. Create the organisation
   const { data: org, error: orgError } = await admin
     .from('organisations')
-    .insert({ name, city, country: 'United Kingdom' })
+    .insert({
+      name,
+      city,
+      country: 'United Kingdom',
+      setup_mode: true,
+      setup_type: 'blank',
+    })
     .select()
     .single();
 
@@ -56,12 +63,34 @@ export async function onboard(formData: FormData) {
     );
   }
 
+  await admin
+    .from('profiles')
+    .update({ active_organisation_id: org.id })
+    .eq('id', user.id);
+
   // 3. Create onboarding progress row for the new org
   await admin.from('onboarding_progress').insert({
     organisation_id: org.id,
     current_step: 1,
     completed_steps: [],
     is_completed: false,
+  });
+
+  await admin.from('workspace_setup_progress').insert({
+    workspace_id: org.id,
+    updated_by: user.id,
+  });
+
+  await trackProductEvent({
+    organisationId: org.id,
+    userId: user.id,
+    eventType: 'onboarding_started',
+    moduleKey: 'onboarding',
+    path: '/onboarding/setup',
+    metadata: {
+      organisationName: org.name,
+      role: safeRole,
+    },
   });
 
   redirect('/onboarding/setup');

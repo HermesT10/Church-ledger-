@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useTransition, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -9,17 +9,10 @@ import {
   CheckCircle,
   Trash2,
   ExternalLink,
-  Users,
   Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -29,14 +22,26 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  approvePayrollRun,
   postPayrollRun,
   deletePayrollRun,
   exportHmrcSummaryCsv,
+  markPayrollPaid,
+  markPayrollReconciled,
+  reversePayrollRun,
+  reviewPayrollRun,
+  updatePayrollRunAttachment,
 } from '@/lib/payroll/actions';
+import { uploadFinancialEvidence } from '@/lib/evidence/actions';
 import type { PayrollRunDetail } from '@/lib/payroll/types';
 import type { OrgSettings } from '@/app/(app)/settings/types';
 import { buildPayrollJournalLines } from '@/lib/payroll/validation';
 import type { PayrollSplit, PayrollAccountIds } from '@/lib/payroll/validation';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { SummaryMetricCard } from '@/components/finance';
+import { SectionCard } from '@/components/section-card';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -50,14 +55,6 @@ function formatMonth(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 }
-
-const STATUS_VARIANTS: Record<
-  string,
-  'default' | 'secondary' | 'outline' | 'destructive'
-> = {
-  draft: 'outline',
-  posted: 'default',
-};
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -77,9 +74,15 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [attachmentUrl, setAttachmentUrl] = useState(run.attachmentUrl);
 
   const isDraft = run.status === 'draft';
+  const isReviewed = run.status === 'reviewed';
+  const isApproved = run.status === 'approved';
   const isPosted = run.status === 'posted';
+  const isPaid = run.status === 'paid';
+  const isReconciled = run.status === 'reconciled';
 
   // Build journal preview lines
   const accountsConfigured = !!(
@@ -118,6 +121,11 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
         payePence: run.totalPayePence,
         nicPence: run.totalNicPence,
         pensionPence: run.totalPensionPence,
+        employeeNicPence: run.totalEmployeeNicPence ?? 0,
+        employerNicPence: run.totalEmployerNicPence ?? run.totalNicPence,
+        employeePensionPence: run.totalEmployeePensionPence ?? 0,
+        employerPensionPence: run.totalEmployerPensionPence ?? run.totalPensionPence,
+        otherDeductionsPence: run.totalOtherDeductionsPence ?? 0,
         splits,
         accountIds,
       });
@@ -154,6 +162,30 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
   /*  Handlers                                                          */
   /* ------------------------------------------------------------------ */
 
+  function handleReview() {
+    startTransition(async () => {
+      const result = await reviewPayrollRun(run.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Payroll run reviewed.');
+      router.refresh();
+    });
+  }
+
+  function handleApprove() {
+    startTransition(async () => {
+      const result = await approvePayrollRun(run.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Payroll run approved.');
+      router.refresh();
+    });
+  }
+
   function handlePost() {
     startTransition(async () => {
       const result = await postPayrollRun(run.id);
@@ -162,6 +194,46 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
         return;
       }
       toast.success('Payroll run posted and journal created.');
+      router.refresh();
+    });
+  }
+
+  function handleMarkPaid() {
+    const reference = window.prompt('Payment reference, if available') ?? undefined;
+    startTransition(async () => {
+      const result = await markPayrollPaid(run.id, reference);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Payroll marked as paid.');
+      router.refresh();
+    });
+  }
+
+  function handleMarkReconciled() {
+    startTransition(async () => {
+      const result = await markPayrollReconciled(run.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Payroll marked as reconciled.');
+      router.refresh();
+    });
+  }
+
+  function handleReverse() {
+    const reason = window.prompt('Explain the reversal reason');
+    if (!reason) return;
+
+    startTransition(async () => {
+      const result = await reversePayrollRun(run.id, reason);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Payroll run reversed.');
       router.refresh();
     });
   }
@@ -182,6 +254,33 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
     toast.success('HMRC summary exported.');
   }
 
+  async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('entityType', 'payroll-runs');
+    const uploadRes = await uploadFinancialEvidence(formData);
+    setUploadingFile(false);
+
+    if (uploadRes.error || !uploadRes.url) {
+      toast.error(uploadRes.error ?? 'Upload failed.');
+      return;
+    }
+
+    const saveRes = await updatePayrollRunAttachment(run.id, uploadRes.url);
+    if (saveRes.error) {
+      toast.error(saveRes.error);
+      return;
+    }
+
+    setAttachmentUrl(uploadRes.url);
+    toast.success('Evidence attached.');
+    router.refresh();
+  }
+
   function handleDelete() {
     if (!confirm('Are you sure you want to delete this draft payroll run?')) {
       return;
@@ -200,31 +299,36 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/payroll">
-              <ArrowLeft size={16} className="mr-1" />
-              Back
-            </Link>
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">
-                Payroll — {formatMonth(run.payrollMonth)}
-              </h1>
-              <Badge variant={STATUS_VARIANTS[run.status] ?? 'outline'}>
-                {run.status === 'draft' ? 'Draft' : 'Posted'}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {run.id.slice(0, 8)}
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-2">
+    <PageShell className="max-w-6xl">
+      <PageHeader
+        title={`Payroll — ${formatMonth(run.payrollMonth)}`}
+        subtitle={run.id.slice(0, 8)}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              status={run.status}
+              label={
+                run.status === 'draft'
+                  ? 'Draft'
+                  : run.status === 'reviewed'
+                    ? 'Reviewed'
+                    : run.status === 'approved'
+                      ? 'Approved'
+                      : run.status === 'paid'
+                        ? 'Paid'
+                        : run.status === 'reconciled'
+                          ? 'Reconciled'
+                          : run.status === 'reversed'
+                            ? 'Reversed'
+                            : 'Posted'
+              }
+            />
+            <Button asChild variant="outline" size="sm">
+              <Link href="/payroll">
+                <ArrowLeft size={14} className="mr-1.5" />
+                Back
+              </Link>
+            </Button>
           {isDraft && canEdit && (
             <>
               <Button
@@ -236,13 +340,25 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
                 <Trash2 size={14} className="mr-1" />
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </Button>
-              <Button onClick={handlePost} disabled={isPending || !accountsConfigured}>
+              <Button onClick={handleReview} disabled={isPending || !accountsConfigured}>
                 <CheckCircle size={14} className="mr-1" />
-                {isPending ? 'Posting...' : 'Post Payroll'}
+                {isPending ? 'Reviewing...' : 'Review Payroll'}
               </Button>
             </>
           )}
-          {isPosted && (
+          {isReviewed && canEdit && (
+            <Button onClick={handleApprove} disabled={isPending || !accountsConfigured}>
+                <CheckCircle size={14} className="mr-1" />
+                {isPending ? 'Approving...' : 'Approve Payroll'}
+              </Button>
+          )}
+          {isApproved && canEdit && (
+            <Button onClick={handlePost} disabled={isPending || !accountsConfigured}>
+              <CheckCircle size={14} className="mr-1" />
+              {isPending ? 'Posting...' : 'Post Payroll'}
+            </Button>
+          )}
+          {(isPosted || isPaid || isReconciled) && (
             <>
               {run.journalId && (
                 <Button asChild variant="outline" size="sm">
@@ -258,13 +374,31 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
                   HMRC Export
                 </Button>
               )}
+              {isPosted && canEdit && (
+                <Button variant="outline" size="sm" onClick={handleMarkPaid} disabled={isPending}>
+                  <CheckCircle size={14} className="mr-1" />
+                  Mark Paid
+                </Button>
+              )}
+              {isPaid && canEdit && (
+                <Button variant="outline" size="sm" onClick={handleMarkReconciled} disabled={isPending}>
+                  <CheckCircle size={14} className="mr-1" />
+                  Mark Reconciled
+                </Button>
+              )}
+              {canEdit && !isReconciled && (
+                <Button variant="destructive" size="sm" onClick={handleReverse} disabled={isPending}>
+                  Reverse
+                </Button>
+              )}
             </>
           )}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
-      {!accountsConfigured && isDraft && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+      {!accountsConfigured && (isDraft || isApproved) && (
+        <div className="rounded-2xl border border-amber-200 bg-warning-soft p-4 text-sm text-amber-800 shadow-card">
           Payroll accounts must be configured in{' '}
           <Link href="/settings" className="underline font-medium">
             Settings
@@ -273,35 +407,53 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
         </div>
       )}
 
+      {(isDraft || isReviewed || isApproved) && canEdit && (
+        <SectionCard title="Evidence" contentClassName="space-y-3">
+            <Input
+              type="file"
+              onChange={handleFileUpload}
+              disabled={uploadingFile || isPending}
+            />
+            {attachmentUrl && (
+              <Link
+                href={attachmentUrl}
+                target="_blank"
+                className="text-sm text-blue-600 underline hover:no-underline"
+              >
+                View attached evidence
+              </Link>
+            )}
+        </SectionCard>
+      )}
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
         {[
           { label: 'Gross', value: run.totalGrossPence },
           { label: 'Net Pay', value: run.totalNetPence },
           { label: 'PAYE', value: run.totalPayePence },
           { label: 'Employer NIC', value: run.totalNicPence },
           { label: 'Employer Pension', value: run.totalPensionPence },
+          {
+            label: 'Employer Cost',
+            value: run.totalEmployerCostPence ?? run.totalGrossPence + run.totalNicPence + run.totalPensionPence,
+          },
         ].map((item) => (
-          <Card key={item.label} className="rounded-2xl shadow-sm">
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{item.label}</p>
-              <p className="text-lg font-bold">{formatPounds(item.value)}</p>
-            </CardContent>
-          </Card>
+          <SummaryMetricCard
+            key={item.label}
+            label={item.label}
+            value={formatPounds(item.value)}
+          />
         ))}
       </div>
 
       {/* Employee Payroll Lines */}
       {run.payrollLines && run.payrollLines.length > 0 && (
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="p-6 pb-0">
-            <div className="flex items-center gap-2">
-              <Users size={18} className="text-muted-foreground" />
-              <CardTitle className="text-base">Employee Breakdown</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-6 pt-4">
-            <div className="rounded-md border overflow-x-auto">
+        <SectionCard
+          title="Employee Breakdown"
+          description="Gross pay, deductions, employer costs, and net pay by employee."
+        >
+            <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -335,21 +487,16 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
       )}
 
       {/* Fund Splits */}
       {run.splits.length > 0 && (
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="p-6 pb-0">
-            <div className="flex items-center gap-2">
-              <Users size={18} className="text-muted-foreground" />
-              <CardTitle className="text-base">Fund Splits</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-6 pt-4">
-            <div className="rounded-md border overflow-x-auto">
+        <SectionCard
+          title="Fund Splits"
+          description="Allocation of payroll costs across funds."
+        >
+            <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -378,21 +525,17 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
       )}
 
       {/* Journal Preview */}
-      <Card className="rounded-2xl shadow-sm">
-        <CardHeader className="p-6 pb-0">
-          <CardTitle className="text-base">
-            {isPosted ? 'Journal Entry' : 'Journal Preview'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6 pt-4">
+      <SectionCard
+        title={isPosted ? 'Journal Entry' : 'Journal Preview'}
+        description="Preview of the double-entry posting generated from this payroll run."
+      >
           {previewLines.length > 0 ? (
             <div className="space-y-2">
-              <div className="rounded-md border overflow-x-auto">
+              <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -450,8 +593,7 @@ export function PayrollDetailClient({ run, settings, canEdit }: Props) {
                 : 'Configure payroll accounts in Settings to see the journal preview.'}
             </p>
           )}
-        </CardContent>
-      </Card>
-    </div>
+      </SectionCard>
+    </PageShell>
   );
 }

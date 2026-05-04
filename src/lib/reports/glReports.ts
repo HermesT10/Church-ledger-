@@ -385,7 +385,7 @@ export async function getCashPositionReport(): Promise<{
     .filter((ba) => ba.linked_account_id)
     .map((ba) => ba.linked_account_id!);
 
-  let glBalanceMap = new Map<string, number>(); // linked_account_id -> balance
+  const glBalanceMap = new Map<string, number>(); // linked_account_id -> balance
 
   if (linkedAccountIds.length > 0) {
     const { data: postedJournals } = await supabase

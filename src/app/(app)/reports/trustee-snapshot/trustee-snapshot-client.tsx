@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCard } from '@/components/stat-card';
 import { ReportShell } from '@/components/reports/report-shell';
 import { ReportSection } from '@/components/reports/report-section';
+import { TrusteePackPanel } from '@/components/reports/trustee-packs';
+import type { TrusteePack } from '@/lib/reports/trustee-packs/types';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -110,6 +112,7 @@ function downloadCsv(csv: string, filename: string) {
 
 interface Props {
   initialData: STrusteeSnapshot | null;
+  initialPack?: TrusteePack | null;
   role: string;
   error?: string | null;
 }
@@ -118,7 +121,7 @@ interface Props {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function TrusteeSnapshotClient({ initialData: data, role, error }: Props) {
+export function TrusteeSnapshotClient({ initialData: data, initialPack, role, error }: Props) {
   const canNavigate = role === 'admin' || role === 'treasurer';
 
   const handleExportCsv = () => {
@@ -175,6 +178,8 @@ export function TrusteeSnapshotClient({ initialData: data, role, error }: Props)
       error={error}
     >
       <div className="space-y-6">
+        <TrusteePackPanel pack={initialPack ?? null} />
+
         {/* ==== 1. Cash Position ==== */}
         <ReportSection
           title="Cash Position"
@@ -215,19 +220,19 @@ export function TrusteeSnapshotClient({ initialData: data, role, error }: Props)
             label="Restricted"
             amount={data.funds.restrictedTotal}
             colorClass="text-blue-600 dark:text-blue-400"
-            bgClass="bg-blue-50 dark:bg-blue-950/30"
+            bgClass=""
           />
           <FundCard
             label="Unrestricted"
             amount={data.funds.unrestrictedTotal}
             colorClass="text-emerald-600 dark:text-emerald-400"
-            bgClass="bg-emerald-50 dark:bg-emerald-950/30"
+            bgClass=""
           />
           <FundCard
             label="Designated"
             amount={data.funds.designatedTotal}
             colorClass="text-amber-600 dark:text-amber-400"
-            bgClass="bg-amber-50 dark:bg-amber-950/30"
+            bgClass=""
           />
         </div>
         </ReportSection>

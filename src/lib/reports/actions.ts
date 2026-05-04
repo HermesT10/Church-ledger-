@@ -12,7 +12,11 @@ import {
   computeBvaTotals,
   type MonthCell,
 } from '@/lib/reports/budgetVsActual';
-import { getCached, setCached } from '@/lib/cache';
+import {
+  getOrgReportCacheTag,
+  getReportScopeCacheTag,
+  runCachedQuery,
+} from '@/lib/cache';
 import { timedQuery } from '@/lib/perf';
 import type { SMonthCell, SBvaRow, SBvaTotals, BvaReportData, SOverspendAlert, MonthlyChartPoint, DashboardData, SForecastSummary, SForecastReportRow, SForecastReportData, SIEAccountRow, SIECategory, SIEReport, SBSAccountRow, SBSSection, SBSReport, SFMFundRow, SFMReport, STrusteeCashItem, STrusteeCash, STrusteeFunds, STrusteeIEPeriod, STrusteeIE, STrusteeVariance, STrusteeForecast, STrusteeSnapshot } from './types';
 
@@ -183,17 +187,19 @@ export async function getDashboardData(params: {
   year: number;
 }): Promise<{ data: DashboardData; error: string | null }> {
   const { orgId, year } = params;
+  return runCachedQuery<{ data: DashboardData; error: string | null }>({
+    keyParts: ['dashboard', orgId, String(year)],
+    tags: [
+      getOrgReportCacheTag(orgId),
+      getReportScopeCacheTag(orgId, 'dashboard'),
+    ],
+    revalidateSeconds: DASHBOARD_CACHE_TTL_MS / 1000,
+    loader: () =>
+      timedQuery(`getDashboardData(${orgId}, ${year})`, async () => {
+        const { createClient } = await import('@/lib/supabase/server');
+        const { listBankAccounts } = await import('@/lib/banking/bankAccounts');
 
-  // Check cache first
-  const cacheKey = `dashboard:${orgId}:${year}`;
-  const cached = getCached<DashboardData>(cacheKey);
-  if (cached) return { data: cached, error: null };
-
-  return timedQuery(`getDashboardData(${orgId}, ${year})`, async () => {
-  const { createClient } = await import('@/lib/supabase/server');
-  const { listBankAccounts } = await import('@/lib/banking/bankAccounts');
-
-  const supabase = await createClient();
+        const supabase = await createClient();
 
   // 1. Fetch counts in parallel
   const [accountsRes, budgetsRes, bankRes, alertsRes, unpaidBillsRes, giftAidRes] = await Promise.all([
@@ -301,11 +307,9 @@ export async function getDashboardData(params: {
       giftAidClaimablePence,
     };
 
-  // Store in cache
-  setCached(cacheKey, dashboardData, DASHBOARD_CACHE_TTL_MS);
-
-  return { data: dashboardData, error: null };
-  }); // end timedQuery
+        return { data: dashboardData, error: null };
+      }),
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -631,7 +635,7 @@ export async function getBalanceSheetReport(params: {
     .from('accounts')
     .select('id, code, name, type')
     .eq('organisation_id', organisationId)
-    .in('type', ['asset', 'liability', 'equity'])
+    .in('type', ['asset', 'liability', 'equity', 'fund_balance'])
     .eq('is_active', true)
     .order('type')
     .order('code');
@@ -1502,6 +1506,7 @@ export interface DrillDownTransaction {
   journalDate: string;
   memo: string;
   description: string;
+  accountName: string | null;
   debitPence: number;
   creditPence: number;
   fundName: string | null;
@@ -1509,7 +1514,7 @@ export interface DrillDownTransaction {
 
 export async function getDrillDownTransactions(params: {
   organisationId: string;
-  accountId: string;
+  accountId?: string | null;
   startDate: string;
   endDate: string;
   fundId?: string | null;
@@ -1517,6 +1522,10 @@ export async function getDrillDownTransactions(params: {
   pageSize?: number;
 }): Promise<{ data: DrillDownTransaction[]; total: number; error: string | null }> {
   const { organisationId, accountId, startDate, endDate, fundId, page = 1, pageSize = 50 } = params;
+
+  if (!accountId && !fundId) {
+    return { data: [], total: 0, error: 'Account or fund scope is required.' };
+  }
 
   const { getActiveOrg } = await import('@/lib/org');
   await getActiveOrg();
@@ -1545,8 +1554,9 @@ export async function getDrillDownTransactions(params: {
     .from('journal_lines')
     .select('*', { count: 'exact', head: true })
     .eq('organisation_id', organisationId)
-    .eq('account_id', accountId)
     .in('journal_id', journalIds);
+
+  if (accountId) countQuery = countQuery.eq('account_id', accountId);
 
   if (fundId) countQuery = countQuery.eq('fund_id', fundId);
 
@@ -1558,11 +1568,12 @@ export async function getDrillDownTransactions(params: {
 
   let linesQuery = supabase
     .from('journal_lines')
-    .select('journal_id, description, debit_pence, credit_pence, fund_id')
+    .select('journal_id, account_id, description, debit_pence, credit_pence, fund_id')
     .eq('organisation_id', organisationId)
-    .eq('account_id', accountId)
     .in('journal_id', journalIds)
     .range(offset, offset + pageSize - 1);
+
+  if (accountId) linesQuery = linesQuery.eq('account_id', accountId);
 
   if (fundId) linesQuery = linesQuery.eq('fund_id', fundId);
 
@@ -1571,7 +1582,9 @@ export async function getDrillDownTransactions(params: {
 
   // 4. Fetch fund names if needed
   const fundIds = [...new Set((lines ?? []).map((l) => l.fund_id).filter(Boolean))] as string[];
-  let fundNameMap = new Map<string, string>();
+  const accountIds = [...new Set((lines ?? []).map((l) => l.account_id).filter(Boolean))] as string[];
+  const fundNameMap = new Map<string, string>();
+  const accountNameMap = new Map<string, string>();
   if (fundIds.length > 0) {
     const { data: funds } = await supabase
       .from('funds')
@@ -1579,6 +1592,16 @@ export async function getDrillDownTransactions(params: {
       .in('id', fundIds);
     for (const f of funds ?? []) {
       fundNameMap.set(f.id, f.name);
+    }
+  }
+
+  if (accountIds.length > 0) {
+    const { data: accounts } = await supabase
+      .from('accounts')
+      .select('id, name')
+      .in('id', accountIds);
+    for (const account of accounts ?? []) {
+      accountNameMap.set(account.id, account.name);
     }
   }
 
@@ -1590,6 +1613,7 @@ export async function getDrillDownTransactions(params: {
       journalDate: journal?.journal_date ?? '',
       memo: journal?.memo ?? '',
       description: l.description ?? '',
+      accountName: l.account_id ? (accountNameMap.get(l.account_id) ?? null) : null,
       debitPence: Number(l.debit_pence),
       creditPence: Number(l.credit_pence),
       fundName: l.fund_id ? (fundNameMap.get(l.fund_id) ?? null) : null,

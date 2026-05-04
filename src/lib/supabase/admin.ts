@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getServerEnv } from '@/lib/env.server';
 
 /**
  * Creates a Supabase client with the service-role key.
@@ -8,18 +9,14 @@ import { createClient } from '@supabase/supabase-js';
  * (e.g. after requireSession()).
  *
  * Never expose this client or the service-role key to the browser.
+ *
+ * Key source: `SUPABASE_SERVICE_ROLE_KEY` (legacy JWT) or `SUPABASE_SECRET_KEY` (`sb_secret_…`),
+ * resolved in `getServerEnv()`.
  */
 export function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const env = getServerEnv();
 
-  if (!url || !key) {
-    throw new Error(
-      'Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.'
-    );
-  }
-
-  return createClient(url, key, {
+  return createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

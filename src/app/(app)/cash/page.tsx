@@ -31,7 +31,7 @@ export default async function CashOverviewPage() {
   return (
     <div className="space-y-6">
       {/* Dashboard cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Cash-in-Hand"
           value={formatPounds(dashboard.cashInHandPence)}
@@ -67,7 +67,7 @@ export default async function CashOverviewPage() {
       </div>
 
       {/* Alert cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {dashboard.unbankedPence > 0 && (
           <SoftAlert variant="warning" icon={<AlertTriangle className="h-5 w-5" />}>
             <p className="font-medium">

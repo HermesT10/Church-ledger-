@@ -2,11 +2,12 @@ import Link from 'next/link';
 import { getActiveOrg } from '@/lib/org';
 import { listBudgets } from '@/lib/budgets/actions';
 import { BarChart3, Pencil, CheckCircle, Archive } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StatCard } from '@/components/stat-card';
 import { PageShell } from '@/components/page-shell';
 import { PageHeader } from '@/components/page-header';
+import { WorkspaceEmptyState } from '@/components/workspace-empty-state';
+import { StatusBadge } from '@/components/ui/status-badge';
 import {
   Table,
   TableBody,
@@ -99,12 +100,7 @@ export default async function BudgetsPage() {
                   <TableCell className="font-medium">{budget.year}</TableCell>
                   <TableCell>{budget.name}</TableCell>
                   <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${STATUS_BADGE_COLORS[budget.status] ?? ''}`}
-                    >
-                      {budget.status}
-                    </Badge>
+                    <StatusBadge status={budget.status} className={STATUS_BADGE_COLORS[budget.status] ?? ''} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(budget.created_at).toLocaleDateString()}
@@ -120,12 +116,16 @@ export default async function BudgetsPage() {
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
-          <BarChart3 className="mx-auto h-10 w-10 text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            No budgets found. {canEdit && 'Create one to get started.'}
-          </p>
-        </div>
+        <WorkspaceEmptyState
+          icon={<BarChart3 className="h-10 w-10" />}
+          title="No budgets yet"
+          description={
+            canEdit
+              ? 'Create your first annual budget so finance users and trustees can compare actuals against plan.'
+              : 'Budgets will appear here once an admin or treasurer creates them.'
+          }
+          action={canEdit ? <CreateBudgetForm orgId={orgId} /> : undefined}
+        />
       )}
     </PageShell>
   );

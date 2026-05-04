@@ -11,7 +11,17 @@ export default async function WorkflowInvoicesPage({
   const { orgId, role } = await getActiveOrg();
   const supabase = await createClient();
   const { status } = await searchParams;
-  const validStatus = ['pending', 'approved', 'rejected', 'converted'].includes(status ?? '')
+  const validStatus = [
+    'draft',
+    'submitted',
+    'under_review',
+    'approved',
+    'rejected',
+    'change_requested',
+    'scheduled_for_payment',
+    'paid',
+    'voided',
+  ].includes(status ?? '')
     ? status!
     : undefined;
 
@@ -19,7 +29,7 @@ export default async function WorkflowInvoicesPage({
     listInvoiceSubmissions(orgId, { status: validStatus }),
     supabase.from('suppliers').select('id, name').eq('organisation_id', orgId).order('name'),
     supabase.from('funds').select('id, name').eq('organisation_id', orgId).eq('is_active', true).order('name'),
-    supabase.from('accounts').select('id, code, name').eq('organisation_id', orgId).eq('type', 'expense').eq('is_active', true).order('code'),
+    supabase.from('accounts').select('id, code, name').eq('organisation_id', orgId).eq('type', 'expense').eq('is_active', true).eq('available_in_invoices', true).order('code'),
   ]);
 
   const currentStatus = validStatus ?? 'all';

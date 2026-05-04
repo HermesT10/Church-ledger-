@@ -1,10 +1,16 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import Papa from 'papaparse';
+import Link from 'next/link';
+import { useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { importBankCsv, listRecentBankLines } from '@/lib/banking/importCsv';
-import type { ImportResult } from '@/lib/banking/types';
+import {
+  importParsedBankStatement,
+  parseBankStatementImport,
+  reprocessBankStatementImport,
+  uploadBankStatementFile,
+} from '@/lib/banking/import-actions';
+import type { ImportParsedStatementResult, StatementPreviewResult } from '@/lib/banking/import-actions.types';
+import type { BankStatementAmountMode, BankStatementColumnMapping } from '@/lib/banking/statement-parser';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -25,770 +31,557 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-interface Props {
-  orgId: string;
-  bankAccountId: string;
-  bankAccountName: string;
+interface BankAccountOption {
+  id: string;
+  name: string;
 }
 
-interface BankLine {
-  id: string;
-  txn_date: string;
-  description: string | null;
-  reference: string | null;
-  amount_pence: number;
-  balance_pence: number | null;
+interface Props {
+  bankAccountId?: string;
+  bankAccountName?: string;
+  accounts?: BankAccountOption[];
 }
 
 type Step = 'upload' | 'mapping' | 'preview' | 'importing' | 'results';
+type MappingField = Exclude<keyof BankStatementColumnMapping, 'amountMode'>;
 
-const REQUIRED_FIELDS = ['date', 'description', 'amount'] as const;
-const OPTIONAL_FIELDS = ['reference', 'balance'] as const;
-const ALL_FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS] as const;
-
-const FIELD_LABELS: Record<string, string> = {
+const FIELD_LABELS: Record<MappingField, string> = {
   date: 'Date',
+  time: 'Time',
   description: 'Description',
-  amount: 'Amount',
+  additional_description: 'Additional description / details',
   reference: 'Reference',
-  balance: 'Balance',
+  money_in: 'Money in',
+  money_out: 'Money out',
+  amount: 'Transaction Amount',
+  balance: 'Running Balance',
 };
 
-/* ------------------------------------------------------------------ */
-/*  Column classification                                              */
-/* ------------------------------------------------------------------ */
-
-type ColumnType = 'date' | 'numeric' | 'text';
-
-const DATE_PATTERN = /^(\d{1,2}[/\-.](\d{1,2}|\w{3})[/\-.]?\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s?\w{3}\s?\d{4})/;
-const NUMERIC_PATTERN = /^[£$€()?\-\d,.\s]+$/;
-const TIME_PATTERN = /^\d{1,2}:\d{2}(:\d{2})?$/;
-
-/**
- * Classify a CSV column based on its sample values.
- * Returns 'date', 'numeric', or 'text'.
- */
-function classifyColumn(
-  header: string,
-  rows: Record<string, string>[],
-): ColumnType {
-  const samples = rows.map((r) => r[header]?.trim()).filter(Boolean);
-  if (samples.length === 0) return 'text';
-
-  let dateHits = 0;
-  let numericHits = 0;
-
-  for (const s of samples) {
-    if (DATE_PATTERN.test(s)) {
-      dateHits++;
-    } else if (TIME_PATTERN.test(s)) {
-      // Times are neither date nor useful numeric — classify as text
-    } else if (NUMERIC_PATTERN.test(s) && s.replace(/[£$€(),\-.\s]/g, '').length > 0) {
-      numericHits++;
-    }
-  }
-
-  const threshold = samples.length * 0.5;
-  if (dateHits >= threshold) return 'date';
-  if (numericHits >= threshold) return 'numeric';
-  return 'text';
-}
-
-/**
- * Build a map of header -> ColumnType for all headers.
- */
-function classifyAllColumns(
-  headers: string[],
-  rows: Record<string, string>[],
-): Record<string, ColumnType> {
-  const result: Record<string, ColumnType> = {};
-  for (const h of headers) {
-    result[h] = classifyColumn(h, rows);
-  }
-  return result;
-}
-
-/**
- * Which column types are relevant for each mapping field.
- */
-const FIELD_COLUMN_TYPES: Record<string, ColumnType[]> = {
-  date: ['date'],
-  description: ['text'],
-  amount: ['numeric'],
-  reference: ['text', 'numeric'],
-  balance: ['numeric'],
+const FIELD_HELP: Record<MappingField, string> = {
+  date: 'Required',
+  time: 'Optional, used in preview and raw audit trace',
+  description: 'Required',
+  additional_description: 'Optional, combined with Description for clearer bank transaction display',
+  reference: 'Optional payment ID, invoice number, donor reference, cheque number, card reference, or bank reference',
+  money_in: 'Use with Money out when the file has separate credit/debit columns',
+  money_out: 'Use with Money in when the file has separate credit/debit columns',
+  amount: 'The amount that moved in or out of the account. Negative values are money out, positive values are money in.',
+  balance: 'The bank account balance after this transaction. Used for checking statement accuracy.',
 };
 
-/**
- * Get filtered headers for a given field, based on column classification.
- * Returns the best-match headers first, with all remaining headers
- * available under an "Other columns" section.
- */
-function getFilteredHeaders(
-  field: string,
-  headers: string[],
-  classifications: Record<string, ColumnType>,
-): { recommended: string[]; other: string[] } {
-  const allowedTypes = FIELD_COLUMN_TYPES[field] ?? ['text', 'numeric', 'date'];
-
-  const recommended: string[] = [];
-  const other: string[] = [];
-
-  for (const h of headers) {
-    if (allowedTypes.includes(classifications[h])) {
-      recommended.push(h);
-    } else {
-      other.push(h);
-    }
-  }
-
-  return { recommended, other };
+function formatMoney(value: number | null): string {
+  if (value == null) return '—';
+  return `£${Math.abs(value).toFixed(2)}`;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Auto-mapping heuristics                                            */
-/* ------------------------------------------------------------------ */
-
-const AUTO_MAP: Record<string, string[]> = {
-  date: ['date', 'transaction date', 'txn date', 'trans date', 'value date', 'posting date'],
-  description: ['description', 'details', 'narrative', 'memo', 'transaction description', 'particulars'],
-  amount: ['amount', 'value', 'debit/credit', 'credit/debit', 'net amount'],
-  reference: ['reference', 'ref', 'cheque no', 'check no', 'transaction ref'],
-  balance: ['balance', 'running balance', 'closing balance', 'available balance'],
-};
-
-function autoMatch(
-  headers: string[],
-  classifications: Record<string, ColumnType>,
-): Record<string, string> {
-  const mapping: Record<string, string> = {};
-  const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
-
-  for (const field of ALL_FIELDS) {
-    // First try name-based matching
-    const candidates = AUTO_MAP[field] ?? [];
-    const idx = lowerHeaders.findIndex((h) => candidates.includes(h));
-    if (idx !== -1) {
-      mapping[field] = headers[idx];
-      continue;
-    }
-
-    // Fallback: if there's exactly one column of the right type, auto-select it
-    const allowedTypes = FIELD_COLUMN_TYPES[field] ?? [];
-    const typedColumns = headers.filter((h) => allowedTypes.includes(classifications[h]));
-    if (typedColumns.length === 1) {
-      mapping[field] = typedColumns[0];
-    }
+function statusBadge(row: StatementPreviewResult['preview_rows'][number]) {
+  if (row.validation_status === 'error') {
+    return <Badge variant="outline" className="border-danger/20 bg-danger-soft text-danger">Invalid</Badge>;
   }
-
-  return mapping;
+  if (row.validation_status === 'warning') {
+    return <Badge variant="outline" className="border-warning/20 bg-warning-soft text-warning">Warning</Badge>;
+  }
+  return <Badge variant="outline" className="border-success/20 bg-success-soft text-success">Valid</Badge>;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Header detection helpers                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Detect whether a row looks like a genuine header row vs a data row.
- * Heuristic: a real header has no purely-numeric or date-like values.
- */
-function looksLikeHeaderRow(fields: string[]): boolean {
-  if (fields.length === 0) return false;
-
-  let textCount = 0;
-  for (const f of fields) {
-    const v = f.trim();
-    if (!v) continue;
-    // If it parses as a number or looks like a date, it's probably data
-    if (!isNaN(Number(v.replace(/[£$€,]/g, '')))) continue;
-    if (/^\d{1,2}[/\-.]?\w{3}[/\-.]?\d{4}$/.test(v)) continue;
-    if (/^\d{4}-\d{2}-\d{2}/.test(v)) continue;
-    textCount++;
-  }
-
-  // If most fields are text-like (not numbers or dates), it's likely a header
-  return textCount >= Math.ceil(fields.length * 0.5);
+function formatPence(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return `${value < 0 ? '-' : ''}£${Math.abs(value / 100).toFixed(2)}`;
 }
 
-/**
- * Parse CSV with smart header detection.
- * Some bank CSVs have preamble rows (title, blank, metadata) before
- * the real header. This function finds the first row that looks like
- * a header and parses from there.
- */
-function smartParseCsv(
-  text: string,
-  previewLimit: number = 5,
-): {
-  headers: string[];
-  previewRows: Record<string, string>[];
-  skippedPreambleLines: number;
-} {
-  // First, try normal header parse
-  const normalParse = Papa.parse<Record<string, string>>(text, {
-    header: true,
-    preview: previewLimit + 1,
-    skipEmptyLines: true,
-  });
-
-  const normalHeaders = normalParse.meta.fields ?? [];
-
-  // Check if the detected headers look real
-  if (normalHeaders.length > 0 && looksLikeHeaderRow(normalHeaders)) {
-    return {
-      headers: normalHeaders,
-      previewRows: normalParse.data.slice(0, previewLimit),
-      skippedPreambleLines: 0,
-    };
-  }
-
-  // Headers look like data values — try parsing without headers to find the real one
-  const rawParse = Papa.parse<string[]>(text, {
-    header: false,
-    skipEmptyLines: true,
-  });
-
-  const allRows = rawParse.data;
-
-  // Find the first row that looks like a header
-  for (let i = 0; i < Math.min(allRows.length, 15); i++) {
-    if (looksLikeHeaderRow(allRows[i])) {
-      // Re-parse from this row onward
-      const remainingLines = allRows.slice(i);
-      const headerRow = remainingLines[0];
-      const dataRows = remainingLines.slice(1, 1 + previewLimit);
-
-      const headers = headerRow.map((h) => h.trim()).filter(Boolean);
-      const previewRows: Record<string, string>[] = dataRows.map((row) => {
-        const obj: Record<string, string> = {};
-        for (let j = 0; j < headers.length; j++) {
-          obj[headers[j]] = row[j] ?? '';
-        }
-        return obj;
-      });
-
-      return {
-        headers,
-        previewRows,
-        skippedPreambleLines: i,
-      };
-    }
-  }
-
-  // Couldn't find a better header — fall back to the original parse
-  return {
-    headers: normalHeaders,
-    previewRows: normalParse.data.slice(0, previewLimit),
-    skippedPreambleLines: 0,
-  };
+function visibleMappingFields(amountMode: BankStatementAmountMode): MappingField[] {
+  const base: MappingField[] = ['date', 'time', 'description', 'additional_description', 'reference'];
+  const amountFields: MappingField[] = amountMode === 'signed' ? ['amount'] : ['money_in', 'money_out'];
+  return [...base, ...amountFields, 'balance'];
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
+function columnOptionLabel(column: StatementPreviewResult['columns'][number]): string {
+  const samples = column.sampleValues.slice(0, 3).join(' | ');
+  return samples ? `${column.displayName} - ${samples}` : column.displayName;
+}
 
-export function ImportForm({ orgId, bankAccountId, bankAccountName }: Props) {
+function columnDisplayName(preview: StatementPreviewResult | null, columnKey?: string): string {
+  if (!columnKey || !preview) return 'Not detected';
+  return preview.columns.find((column) => column.columnKey === columnKey)?.displayName ?? columnKey;
+}
+
+function mappedSummaryValue(preview: StatementPreviewResult | null, mapping: BankStatementColumnMapping, field: MappingField): string {
+  if (field === 'description' && mapping.description && mapping.additional_description) {
+    return `${columnDisplayName(preview, mapping.description)} + ${columnDisplayName(preview, mapping.additional_description)}`;
+  }
+  return columnDisplayName(preview, mapping[field]);
+}
+
+function downloadInvalidRows(preview: StatementPreviewResult | null) {
+  if (!preview) return;
+  const rows = preview.invalid_rows.map((row) => ({
+    row_number: row.row_number,
+    errors: row.validation_errors.join('; '),
+    warnings: row.validation_warnings.join('; '),
+    raw: JSON.stringify(row.raw).replaceAll('"', '""'),
+  }));
+  const csv = [
+    'row_number,errors,warnings,raw',
+    ...rows.map((row) => `${row.row_number},"${row.errors}","${row.warnings}","${row.raw}"`),
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bank-statement-errors-${preview.statement_import_id ?? 'preview'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function ImportForm({ bankAccountId, bankAccountName, accounts = [] }: Props) {
   const [step, setStep] = useState<Step>('upload');
-  const [file, setFile] = useState<File | null>(null);
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [recentLines, setRecentLines] = useState<BankLine[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [skippedPreamble, setSkippedPreamble] = useState(0);
-  const [columnTypes, setColumnTypes] = useState<Record<string, ColumnType>>({});
+  const [selectedAccountId, setSelectedAccountId] = useState(bankAccountId ?? accounts[0]?.id ?? '');
+  const [preview, setPreview] = useState<StatementPreviewResult | null>(null);
+  const [mapping, setMapping] = useState<BankStatementColumnMapping>({});
+  const [saveTemplate, setSaveTemplate] = useState(false);
+  const [mappingName, setMappingName] = useState('');
+  const [result, setResult] = useState<ImportParsedStatementResult | null>(null);
+  const [existingImportMode, setExistingImportMode] = useState(false);
+  const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
-  /* ---- Step 1: File upload ---- */
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFile = e.target.files?.[0];
-      if (!selectedFile) return;
+  const selectedAccountName = useMemo(() => {
+    if (bankAccountName) return bankAccountName;
+    return accounts.find((account) => account.id === selectedAccountId)?.name ?? 'selected account';
+  }, [accounts, bankAccountName, selectedAccountId]);
 
-      setFile(selectedFile);
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = reader.result as string;
-        const { headers: h, previewRows: rows, skippedPreambleLines } = smartParseCsv(text, 5);
-
-        if (h.length === 0) {
-          toast.error('Could not detect column headers in this CSV.');
+  async function handleUpload(formData: FormData) {
+    if (selectedAccountId) formData.set('bankAccountId', selectedAccountId);
+    startTransition(async () => {
+      const uploaded = await uploadBankStatementFile(formData);
+      if (!uploaded.ok || !uploaded.statement_import_id) {
+        if (!uploaded.duplicate_statement_import_id) {
+          toast.error(uploaded.error ?? 'Upload failed.');
           return;
         }
-
-        const types = classifyAllColumns(h, rows);
-        setHeaders(h);
-        setPreviewRows(rows);
-        setSkippedPreamble(skippedPreambleLines);
-        setColumnTypes(types);
-        setMapping(autoMatch(h, types));
-        setStep('mapping');
-
-        if (skippedPreambleLines > 0) {
-          toast.info(`Skipped ${skippedPreambleLines} preamble row(s) before the header.`);
+        toast.warning('This file was already uploaded. You can review the mapping and reprocess it if all rows are still unmatched.');
+        const parsed = await parseBankStatementImport({ statementImportId: uploaded.duplicate_statement_import_id });
+        if (!parsed.ok) {
+          toast.error(parsed.error ?? 'Statement parsing failed.');
+          return;
         }
-      };
-      reader.onerror = () => {
-        toast.error('Failed to read file.');
-      };
-      reader.readAsText(selectedFile);
-    },
-    []
-  );
+        setExistingImportMode(true);
+        setPreview(parsed);
+        setMapping(parsed.mapping);
+        setStep('mapping');
+        return;
+      }
 
-  /* ---- Step 2: Mapping update ---- */
-  const updateMapping = useCallback((field: string, headerName: string) => {
-    setMapping((prev) => ({ ...prev, [field]: headerName }));
-  }, []);
+      const parsed = await parseBankStatementImport({ statementImportId: uploaded.statement_import_id });
+      if (!parsed.ok) {
+        toast.error(parsed.error ?? 'Statement parsing failed.');
+        return;
+      }
 
-  const isMappingValid = REQUIRED_FIELDS.every((f) => !!mapping[f]);
+      setExistingImportMode(false);
+      setPreview(parsed);
+      setMapping(parsed.mapping);
+      setShowAdvancedMapping(parsed.confidence !== 'high' || parsed.summary.invalid_rows > 0);
+      setStep(parsed.confidence === 'high' && parsed.summary.invalid_rows === 0 && !parsed.saved_template_applied ? 'preview' : 'mapping');
+      toast.success('Statement uploaded and analysed.');
+    });
+  }
 
-  /* ---- Step 2→3: Preview ---- */
-  const handleGoToPreview = useCallback(() => {
-    if (!isMappingValid) {
-      toast.error('Please map all required columns (Date, Description, Amount).');
-      return;
-    }
-    setStep('preview');
-  }, [isMappingValid]);
+  function refreshPreview(nextMapping: BankStatementColumnMapping) {
+    if (!preview?.statement_import_id) return;
+    startTransition(async () => {
+      const parsed = await parseBankStatementImport({
+        statementImportId: preview.statement_import_id!,
+        mapping: nextMapping,
+      });
+      if (!parsed.ok) {
+        toast.error(parsed.error ?? 'Could not refresh preview.');
+        return;
+      }
+      setPreview(parsed);
+      setMapping(parsed.mapping);
+      setShowAdvancedMapping(false);
+      setStep('preview');
+    });
+  }
 
-  /* ---- Step 3→4: Import ---- */
-  const handleImport = useCallback(async () => {
-    if (!file) return;
-
+  function handleImport() {
+    if (!preview?.statement_import_id) return;
     setStep('importing');
-    setLoading(true);
-
-    const formData = new FormData();
-    formData.set('orgId', orgId);
-    formData.set('bankAccountId', bankAccountId);
-    formData.set('file', file);
-    formData.set('mapping', JSON.stringify(mapping));
-
-    try {
-      const importResult = await importBankCsv(formData);
-      setResult(importResult);
-
-      if (importResult.inserted_count > 0) {
-        toast.success(`Imported ${importResult.inserted_count} of ${importResult.total_rows} transactions.`);
-      } else if (importResult.skipped_duplicates > 0) {
-        toast.info('All rows were duplicates — nothing new to import.');
-      } else if (importResult.errors_count > 0) {
-        toast.error('Import completed with errors. See details below.');
-      }
-
-      const { data } = await listRecentBankLines(orgId, bankAccountId);
-      setRecentLines(data as BankLine[]);
-
+    startTransition(async () => {
+      const imported = await importParsedBankStatement({
+        statementImportId: preview.statement_import_id!,
+        mapping,
+        saveMapping: saveTemplate,
+        mappingName,
+      });
+      setResult(imported);
       setStep('results');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Import failed.';
-      toast.error(msg);
-      setStep('mapping');
-    } finally {
-      setLoading(false);
-    }
-  }, [file, mapping, orgId, bankAccountId]);
+      if (imported.ok) toast.success('Statement import complete.');
+      else toast.error(imported.error ?? 'Statement import failed.');
+    });
+  }
 
-  /* ---- Reset ---- */
-  const handleReset = useCallback(() => {
-    setStep('upload');
-    setFile(null);
-    setHeaders([]);
-    setPreviewRows([]);
-    setMapping({});
-    setResult(null);
-    setRecentLines([]);
-    setSkippedPreamble(0);
-    setColumnTypes({});
-  }, []);
+  function handleReprocess() {
+    if (!preview?.statement_import_id) return;
+    setStep('importing');
+    startTransition(async () => {
+      const imported = await reprocessBankStatementImport({
+        statementImportId: preview.statement_import_id!,
+        mapping,
+        saveMapping: saveTemplate,
+        mappingName,
+      });
+      setResult(imported);
+      setStep('results');
+      if (imported.ok) toast.success('Statement reprocessed with corrected mapping.');
+      else toast.error(imported.error ?? 'Statement reprocess failed.');
+    });
+  }
 
-  /* ---- Get sample value for a header column ---- */
-  const getSample = useCallback(
-    (header: string) => {
-      for (const row of previewRows) {
-        const val = row[header]?.trim();
-        if (val) return val;
-      }
-      return '';
-    },
-    [previewRows]
-  );
+  const columns = preview?.columns ?? [];
+  const amountMode = mapping.amountMode ?? preview?.amountMode ?? 'signed';
 
   return (
     <div className="space-y-6">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        {(['upload', 'mapping', 'preview', 'results'] as const).map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            {i > 0 && <span className="text-muted-foreground/40">→</span>}
-            <span
-              className={
-                step === s || (step === 'importing' && s === 'preview')
-                  ? 'font-semibold text-foreground'
-                  : ''
-              }
-            >
-              {i + 1}. {s === 'upload' ? 'Upload' : s === 'mapping' ? 'Map Columns' : s === 'preview' ? 'Preview' : 'Results'}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* ============================================================ */}
-      {/* Step 1: Upload                                                */}
-      {/* ============================================================ */}
-      {step === 'upload' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload CSV File</CardTitle>
-            <CardDescription>
-              Select a CSV bank statement to import into{' '}
-              <strong>{bankAccountName}</strong>.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="csvFile">CSV File</Label>
-              <Input
-                id="csvFile"
-                type="file"
-                accept=".csv"
-                onChange={handleFileChange}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Supported date formats: DD/MM/YYYY, YYYY-MM-DD, 31Dec2025, and more.
-              </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>1. Upload statement</CardTitle>
+          <CardDescription>
+            CSV and XLSX files are stored privately before parsing. Re-uploaded files are blocked by file hash.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={handleUpload} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            {!bankAccountId && (
+              <div className="space-y-2">
+                <Label htmlFor="bankAccountId">Bank account</Label>
+                <select
+                  id="bankAccountId"
+                  name="bankAccountId"
+                  value={selectedAccountId}
+                  onChange={(event) => setSelectedAccountId(event.target.value)}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  required
+                >
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {bankAccountId && <input type="hidden" name="bankAccountId" value={bankAccountId} />}
+            <div className="space-y-2">
+              <Label htmlFor="file">Statement file</Label>
+              <Input id="file" name="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex items-end">
+              <Button type="submit" disabled={isPending || !selectedAccountId}>
+                {isPending && step === 'upload' ? 'Uploading...' : 'Upload and analyse'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
-      {/* ============================================================ */}
-      {/* Step 2: Mapping                                               */}
-      {/* ============================================================ */}
-      {step === 'mapping' && (
+      {preview && (
         <Card>
           <CardHeader>
-            <CardTitle>Map Columns</CardTitle>
-            <CardDescription>
-              Map your CSV columns to the required fields.
-              {skippedPreamble > 0 && (
-                <span className="ml-1 text-amber-600">
-                  ({skippedPreamble} preamble row(s) were auto-skipped.)
-                </span>
-              )}
-            </CardDescription>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>2. Detected statement format</CardTitle>
+                <CardDescription>
+                  Confirm the plain-language mapping before importing into {selectedAccountName}.
+                </CardDescription>
+              </div>
+              <Badge variant={preview.confidence === 'high' ? 'default' : 'secondary'}>
+                {preview.confidence} confidence
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {ALL_FIELDS.map((field) => {
-                const isRequired = (REQUIRED_FIELDS as readonly string[]).includes(field);
-                const { recommended } = getFilteredHeaders(field, headers, columnTypes);
-
-                return (
-                  <div key={field} className="flex flex-col gap-1.5">
-                    <Label className="flex items-center gap-1">
-                      {FIELD_LABELS[field]}
-                      {isRequired && (
-                        <span className="text-destructive">*</span>
-                      )}
-                    </Label>
-                    <select
-                      value={mapping[field] ?? ''}
-                      onChange={(e) => updateMapping(field, e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                      <option value="">— Select column —</option>
-                      {recommended.map((h) => {
-                        const sample = getSample(h);
-                        return (
-                          <option key={h} value={h}>
-                            {h}{sample ? ` (e.g. ${sample.length > 25 ? sample.slice(0, 25) + '…' : sample})` : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {/* Show selected column's sample value */}
-                    {mapping[field] && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        Sample: {getSample(mapping[field]) || '(empty)'}
-                      </p>
-                    )}
+            {preview.detection_reasons.length > 0 && (
+              <p className="text-sm text-muted-foreground">{preview.detection_reasons.join(' · ')}</p>
+            )}
+            <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2">
+              {[
+                ['date', 'Date'],
+                ['time', 'Time'],
+                ['description', 'Description'],
+                ['reference', 'Reference'],
+                [amountMode === 'signed' ? 'amount' : 'money_in', amountMode === 'signed' ? 'Transaction Amount' : 'Money In'],
+                [amountMode === 'signed' ? 'balance' : 'money_out', amountMode === 'signed' ? 'Running Balance' : 'Money Out'],
+                ...(amountMode === 'separate' ? [['balance', 'Running Balance']] as [MappingField, string][] : []),
+              ].map(([field, label]) => (
+                <div key={`${field}-${label}`} className="flex items-start justify-between gap-3 rounded-xl border border-border/70 p-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <p className="mt-1 text-sm font-semibold">{mappedSummaryValue(preview, mapping, field as MappingField)}</p>
                   </div>
-                );
-              })}
+                  {mappedSummaryValue(preview, mapping, field as MappingField) === 'Not detected' && (
+                    <Badge variant="outline">Optional</Badge>
+                  )}
+                </div>
+              ))}
             </div>
-
-            {/* Preview table */}
-            {previewRows.length > 0 && (
-              <div className="mt-4">
-                <Label className="mb-2 block text-sm font-medium">
-                  CSV Preview (first {previewRows.length} rows)
-                </Label>
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        {headers.map((h) => (
-                          <th
-                            key={h}
-                            className="px-2 py-1.5 text-left font-medium whitespace-nowrap"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows.map((row, i) => (
-                        <tr key={i} className="border-b last:border-0">
-                          {headers.map((h) => (
-                            <td key={h} className="px-2 py-1 whitespace-nowrap">
-                              {row[h] ?? ''}
-                            </td>
-                          ))}
-                        </tr>
+            <div className="rounded-xl border border-muted bg-muted/30 p-4 text-sm text-muted-foreground">
+              <p><strong className="text-foreground">Transaction Amount:</strong> The amount that moved in or out of the account. Negative values are money out, positive values are money in.</p>
+              <p className="mt-2"><strong className="text-foreground">Running Balance:</strong> The bank account balance after this transaction. Used for checking statement accuracy.</p>
+              <p className="mt-2"><strong className="text-foreground">Reference:</strong> A payment ID, invoice number, donor reference, standing order reference, cheque number, card reference, or bank reference used to help match transactions.</p>
+            </div>
+            {preview.saved_template_applied && (
+              <div className="rounded-xl border border-success/20 bg-success-soft p-3 text-sm text-success">
+                Saved template applied: {preview.saved_template_name}
+              </div>
+            )}
+            {existingImportMode && (
+              <div className="rounded-xl border border-warning/20 bg-warning-soft p-3 text-sm text-warning">
+                This statement already has an import record. Reprocessing is only allowed while all rows from the import are still unmatched and unreconciled.
+              </div>
+            )}
+            <Button type="button" variant="outline" onClick={() => setShowAdvancedMapping((value) => !value)}>
+              {showAdvancedMapping ? 'Hide advanced mapping' : 'Advanced: Edit column mapping'}
+            </Button>
+            {showAdvancedMapping && (
+              <div className="space-y-4 rounded-2xl border p-4">
+                <div className="overflow-x-auto rounded-xl border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Column</TableHead>
+                        <TableHead>Sample values</TableHead>
+                        <TableHead>Detected as</TableHead>
+                        <TableHead>Confidence</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {columns.map((column) => (
+                        <TableRow key={column.columnKey} className={column.sampleValues.length === 0 ? 'opacity-50' : undefined}>
+                          <TableCell>
+                            <div className="font-medium">{column.displayName}</div>
+                            <div className="text-xs text-muted-foreground">{column.columnKey}</div>
+                          </TableCell>
+                          <TableCell className="max-w-[360px] text-sm text-muted-foreground">
+                            {column.sampleValues.length > 0 ? column.sampleValues.join(' | ') : 'Empty / unknown'}
+                          </TableCell>
+                          <TableCell>{column.detectedType.replaceAll('_', ' ')}</TableCell>
+                          <TableCell>
+                            <Badge variant={column.confidence === 'high' ? 'default' : 'secondary'}>{column.confidence}</Badge>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="max-w-md space-y-2">
+                  <Label htmlFor="amountMode">Amount format</Label>
+                  <select
+                    id="amountMode"
+                    value={amountMode}
+                    onChange={(event) => {
+                      const nextMode = event.target.value as BankStatementAmountMode;
+                      setMapping((current) => ({
+                        ...current,
+                        amountMode: nextMode,
+                        amount: nextMode === 'signed' ? current.amount : undefined,
+                        money_in: nextMode === 'separate' ? current.money_in : undefined,
+                        money_out: nextMode === 'separate' ? current.money_out : undefined,
+                      }));
+                    }}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="signed">Single transaction amount column</option>
+                    <option value="separate">Separate money in and money out columns</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Transaction amount mode expects one positive/negative amount column. Separate mode expects money in and money out columns.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {visibleMappingFields(amountMode).map((field) => (
+                    <div key={field} className="space-y-2">
+                      <Label htmlFor={`mapping-${field}`}>{FIELD_LABELS[field]}</Label>
+                      <select
+                        id={`mapping-${field}`}
+                        value={mapping[field] ?? ''}
+                        onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value || undefined }))}
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">Not mapped</option>
+                        {columns.map((column) => (
+                          <option key={column.columnKey} value={column.columnKey}>{columnOptionLabel(column)}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground">{FIELD_HELP[field]}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
-
-            <div className="flex gap-2 pt-2">
-              <Button onClick={handleGoToPreview} disabled={!isMappingValid}>
-                Next: Preview
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" disabled={isPending} onClick={() => refreshPreview(mapping)}>
+                Refresh preview
               </Button>
-              <Button variant="outline" onClick={handleReset}>
-                Cancel
-              </Button>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={saveTemplate}
+                  onChange={(event) => setSaveTemplate(event.target.checked)}
+                />
+                Save this mapping template
+              </label>
+              {saveTemplate && (
+                <Input
+                  value={mappingName}
+                  onChange={(event) => setMappingName(event.target.value)}
+                  placeholder="Template name"
+                  className="max-w-xs"
+                />
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* ============================================================ */}
-      {/* Step 3: Preview mapped data                                   */}
-      {/* ============================================================ */}
-      {step === 'preview' && (
+      {preview && (step === 'preview' || step === 'mapping' || step === 'importing' || step === 'results') && (
         <Card>
           <CardHeader>
-            <CardTitle>Preview Mapped Data</CardTitle>
+            <CardTitle>3. Preview and validation</CardTitle>
             <CardDescription>
-              Verify the mapping looks correct before importing.
+              Valid non-duplicate rows will be imported. Invalid rows stay in the report for correction.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="overflow-x-auto rounded-md border">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Rows detected</p>
+                <p className="text-2xl font-semibold">{preview.summary.rows_detected}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Valid / invalid</p>
+                <p className="text-2xl font-semibold">{preview.summary.valid_rows} / {preview.summary.invalid_rows}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Duplicates</p>
+                <p className="text-2xl font-semibold">{preview.summary.duplicate_rows}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Date range</p>
+                <p className="text-sm font-medium">{preview.summary.date_start ?? '—'} to {preview.summary.date_end ?? '—'}</p>
+              </div>
+            </div>
+            <div className="rounded-xl border p-4 text-sm">
+              Opening balance {formatMoney(preview.summary.opening_balance)} · Closing balance {formatMoney(preview.summary.closing_balance)}
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Row</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    {mapping.reference && <TableHead>Reference</TableHead>}
-                    {mapping.balance && (
-                      <TableHead className="text-right">Balance</TableHead>
-                    )}
+                    <TableHead>Reference</TableHead>
+                    <TableHead className="text-right">Money in</TableHead>
+                    <TableHead className="text-right">Money out</TableHead>
+                    <TableHead className="text-right">Transaction Amount</TableHead>
+                    <TableHead className="text-right">Running Balance</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {previewRows.map((row, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="whitespace-nowrap font-mono text-xs">
-                        {row[mapping.date] ?? '—'}
+                  {preview.preview_rows.map((row) => (
+                    <TableRow key={row.row_number}>
+                      <TableCell>{row.row_number}</TableCell>
+                      <TableCell>{row.transaction_date ?? '—'}</TableCell>
+                      <TableCell>{row.transaction_time ?? '—'}</TableCell>
+                      <TableCell className="max-w-[260px] truncate">{row.display_description || row.description || '—'}</TableCell>
+                      <TableCell>{row.reference ?? '—'}</TableCell>
+                      <TableCell className="text-right text-success">
+                        {formatPence(row.money_in_pence > 0 ? row.money_in_pence : null)}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {row[mapping.description] ?? '—'}
+                      <TableCell className="text-right text-foreground">
+                        {formatPence(row.money_out_pence > 0 ? row.money_out_pence : null)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {row[mapping.amount] ?? '—'}
+                      <TableCell className={row.amount_pence < 0 ? 'text-right text-foreground' : 'text-right text-success'}>
+                        {formatPence(row.amount_pence)}
                       </TableCell>
-                      {mapping.reference && (
-                        <TableCell className="text-xs">
-                          {row[mapping.reference] ?? '—'}
-                        </TableCell>
-                      )}
-                      {mapping.balance && (
-                        <TableCell className="text-right font-mono text-xs">
-                          {row[mapping.balance] ?? '—'}
-                        </TableCell>
-                      )}
+                      <TableCell className="text-right">{formatPence(row.running_balance_pence)}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          {statusBadge(row)}
+                          {[...row.validation_errors, ...row.validation_warnings].slice(0, 2).map((message) => (
+                            <p key={message} className="max-w-[260px] text-xs text-muted-foreground">{message}</p>
+                          ))}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
 
-            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
-              <p>
-                <strong>{file?.name}</strong> — showing {previewRows.length} preview
-                rows. The full file will be imported.
-              </p>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Button onClick={handleImport} disabled={loading}>
-                {loading ? 'Importing…' : 'Import All Rows'}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Button type="button" variant="outline" onClick={() => downloadInvalidRows(preview)} disabled={preview.invalid_rows.length === 0}>
+                Download error report
               </Button>
-              <Button variant="outline" onClick={() => setStep('mapping')}>
-                Back to Mapping
-              </Button>
-              <Button variant="ghost" onClick={handleReset}>
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ============================================================ */}
-      {/* Step 3.5: Importing spinner                                   */}
-      {/* ============================================================ */}
-      {step === 'importing' && (
-        <Card>
-          <CardContent className="py-12 text-center space-y-3">
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-primary" />
-            <p className="text-muted-foreground">
-              Importing transactions into <strong>{bankAccountName}</strong>…
-            </p>
-            <p className="text-xs text-muted-foreground">
-              This may take a moment for large files.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ============================================================ */}
-      {/* Step 4: Results                                               */}
-      {/* ============================================================ */}
-      {step === 'results' && result && (
-        <>
-          {/* Summary card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Import Results</CardTitle>
-              <CardDescription>
-                {result.inserted_count > 0
-                  ? `Successfully imported ${result.inserted_count} transactions.`
-                  : result.skipped_duplicates > 0
-                  ? 'All rows were already imported (duplicates).'
-                  : 'No rows were imported.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Total Rows</p>
-                  <p className="text-2xl font-semibold">{result.total_rows}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Inserted</p>
-                  <p className="text-2xl font-semibold text-green-600">
-                    {result.inserted_count}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Duplicates Skipped</p>
-                  <p className="text-2xl font-semibold text-yellow-600">
-                    {result.skipped_duplicates}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Errors</p>
-                  <p className="text-2xl font-semibold text-red-600">
-                    {result.errors_count}
-                  </p>
-                </div>
-              </div>
-
-              {result.sample_errors.length > 0 && (
-                <div className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive space-y-1">
-                  <p className="font-medium">
-                    Errors (showing first {result.sample_errors.length}):
-                  </p>
-                  {result.sample_errors.map((err, i) => (
-                    <p key={i} className="text-xs">
-                      {err}
-                    </p>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-4 flex gap-2">
-                <Button onClick={handleReset}>Import Another File</Button>
+              <div className="flex gap-2">
                 <Button asChild variant="outline">
-                  <a href="/banking">Back to Banking</a>
+                  <Link href="/banking">Cancel</Link>
                 </Button>
+                <Button type="button" onClick={handleImport} disabled={isPending || preview.summary.valid_rows === 0 || step === 'importing'}>
+                  {step === 'importing' ? 'Importing...' : 'Import valid rows'}
+                </Button>
+                {existingImportMode && (
+                  <Button type="button" variant="secondary" onClick={handleReprocess} disabled={isPending || preview.summary.valid_rows === 0 || step === 'importing'}>
+                    Reprocess import with corrected mapping
+                  </Button>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Recent lines table */}
-          {recentLines.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Transactions (Last 20)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Reference</TableHead>
-                      <TableHead className="text-right">Amount (£)</TableHead>
-                      <TableHead className="text-right">Balance (£)</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recentLines.map((line) => (
-                      <TableRow key={line.id}>
-                        <TableCell className="whitespace-nowrap">
-                          {new Date(line.txn_date).toLocaleDateString('en-GB', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {line.description || '—'}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {line.reference || '—'}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right font-mono ${
-                            line.amount_pence < 0
-                              ? 'text-red-600'
-                              : 'text-green-600'
-                          }`}
-                        >
-                          {(line.amount_pence / 100).toFixed(2)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {line.balance_pence != null
-                            ? (line.balance_pence / 100).toFixed(2)
-                            : '—'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">Unmatched</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </>
+      {result && step === 'results' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Import result</CardTitle>
+            <CardDescription>
+              {result.ok ? 'Statement import completed.' : result.error}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Imported</p>
+                <p className="text-2xl font-semibold">{result.inserted_count}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Duplicates skipped</p>
+                <p className="text-2xl font-semibold">{result.skipped_duplicates}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs text-muted-foreground">Errors</p>
+                <p className="text-2xl font-semibold">{result.errors_count}</p>
+              </div>
+            </div>
+            {result.sample_errors.length > 0 && (
+              <div className="rounded-xl border border-warning/20 bg-warning-soft p-4 text-sm text-warning">
+                {result.sample_errors.join(' · ')}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button asChild>
+                <Link href={`/banking/${selectedAccountId}`}>View transactions</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/reconciliation">Go to reconciliation</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

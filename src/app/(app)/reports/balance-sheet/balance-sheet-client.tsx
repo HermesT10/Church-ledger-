@@ -7,10 +7,6 @@ import type { SBSReport, SBSSection, SBSAccountRow } from '@/lib/reports/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-} from '@/components/ui/card';
-import {
   Table,
   TableBody,
   TableCell,
@@ -19,18 +15,32 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ReportShell } from '@/components/reports/report-shell';
+import { ReportEmptyState } from '@/components/reports/report-empty-state';
+import { DrillDownDialog, type DrillDownParams } from '@/components/reports/drill-down-dialog';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
+import { ReportTableCard } from '@/components/reports/report-table-card';
+import { SummaryMetricCard } from '@/components/finance';
+import { buildBalanceSheetInsights } from '@/lib/reports/insights';
+import {
+  buildDateScope,
+  buildFundFilterLabel,
+  formatCurrencyFromPence,
+  type ReportDefinition,
+  type ReportKpi,
+  type ReportMetadata,
+} from '@/lib/reports/framework';
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                                */
 /* ------------------------------------------------------------------ */
 
 const SELECT_CLASS =
-  'flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 function penceToPounds(pence: number): string {
   if (pence === 0) return '—';
   const pounds = pence / 100;
-  const prefix = pounds < 0 ? '-' : '';
+  const prefix = pounds < 0 ? '-£' : '£';
   return `${prefix}${Math.abs(pounds).toLocaleString('en-GB', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -113,6 +123,7 @@ export function BalanceSheetClient({
   const [asOfDate, setAsOfDate] = useState(initialAsOfDate);
   const [fundId, setFundId] = useState<string>('all');
   const [isPending, startTransition] = useTransition();
+  const [drillDown, setDrillDown] = useState<DrillDownParams | null>(null);
 
   const hasData =
     data &&
@@ -157,6 +168,82 @@ export function BalanceSheetClient({
     toast.success('CSV downloaded.');
   };
 
+  const openDrillDown = (row: SBSAccountRow) => {
+    setDrillDown({
+      organisationId: orgId,
+      accountId: row.accountId,
+      accountName: row.accountName,
+      startDate: '1900-01-01',
+      endDate: asOfDate,
+      fundId: fundId === 'all' ? undefined : fundId,
+      title: `Activity supporting ${row.accountName}`,
+    });
+  };
+
+  const metadata: ReportMetadata | undefined = data
+    ? {
+        scope: buildDateScope({ asOfDate }),
+        comparison: 'Accounting equation: assets = liabilities + equity',
+        source: 'Posted journals only, filtered by reporting date and optional fund scope.',
+        filters: [
+          { label: 'As of', value: asOfDate },
+          {
+            label: 'Fund',
+            value: buildFundFilterLabel(
+              fundId === 'all' ? null : fundId,
+              funds,
+            ),
+          },
+        ],
+        footnotes: [
+          {
+            text: 'Balance sheet amounts are cumulative balances up to the selected date, not period movement.',
+          },
+        ],
+      }
+    : undefined;
+
+  const kpis: ReportKpi[] | undefined = data
+    ? [
+        {
+          label: 'Assets',
+          value: formatCurrencyFromPence(data.sections.assets.total),
+        },
+        {
+          label: 'Liabilities',
+          value: formatCurrencyFromPence(data.sections.liabilities.total),
+        },
+        {
+          label: 'Net Assets',
+          value: formatCurrencyFromPence(data.netAssets),
+          tone: data.netAssets >= 0 ? 'positive' : 'caution',
+        },
+        {
+          label: 'Equation Check',
+          value: data.check.balances ? 'Balanced' : 'Out of balance',
+          helper: data.check.balances
+            ? 'Assets reconcile to liabilities plus equity.'
+            : `Difference ${formatCurrencyFromPence(data.check.difference)}.`,
+          tone: data.check.balances ? 'positive' : 'critical',
+        },
+      ]
+    : undefined;
+
+  const definitions: ReportDefinition[] = [
+    {
+      term: 'Assets',
+      meaning: 'Resources the organisation controls, including cash and other balances.',
+    },
+    {
+      term: 'Liabilities',
+      meaning: 'Amounts owed by the organisation at the reporting date.',
+    },
+    {
+      term: 'Net assets / equity',
+      meaning: 'The residual value after liabilities are deducted from assets.',
+    },
+  ];
+
   /* ---- Render ---- */
   return (
     <ReportShell
@@ -165,44 +252,49 @@ export function BalanceSheetClient({
       description="Assets, liabilities, and net assets as of a date."
       activeReport="/reports/balance-sheet"
       action={
-        <div className="flex flex-wrap items-end gap-3">
-        <label className="space-y-1">
-          <span className="text-xs font-medium">As of date</span>
-          <input
-            type="date"
-            className={SELECT_CLASS}
-            value={asOfDate}
-            onChange={(e) => handleDateChange(e.target.value)}
-          />
-        </label>
+        <ReportFilterBar>
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">As of date</span>
+            <input
+              type="date"
+              className={SELECT_CLASS}
+              value={asOfDate}
+              onChange={(e) => handleDateChange(e.target.value)}
+            />
+          </label>
 
-        <label className="space-y-1">
-          <span className="text-xs font-medium">Fund</span>
-          <select
-            className={SELECT_CLASS}
-            value={fundId}
-            onChange={(e) => handleFundChange(e.target.value)}
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Fund</span>
+            <select
+              className={SELECT_CLASS}
+              value={fundId}
+              onChange={(e) => handleFundChange(e.target.value)}
+            >
+              <option value="all">All Funds</option>
+              {funds.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 self-end rounded-xl"
+            onClick={handleExportCsv}
+            disabled={!hasData}
           >
-            <option value="all">All Funds</option>
-            {funds.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleExportCsv}
-          disabled={!hasData}
-        >
-          Export CSV
-        </Button>
-        </div>
+            Export CSV
+          </Button>
+        </ReportFilterBar>
       }
       error={error}
+      metadata={metadata}
+      kpis={kpis}
+      insights={data ? buildBalanceSheetInsights(data) : undefined}
+      definitions={definitions}
     >
       {/* ---- Loading ---- */}
       {isPending && (
@@ -211,14 +303,18 @@ export function BalanceSheetClient({
 
       {/* ---- Empty state ---- */}
       {!isPending && !hasData && (
-        <p className="text-sm text-muted-foreground">
-          No balance sheet data as of {asOfDate}. Post journals to see balances.
-        </p>
+        <ReportEmptyState
+          title="No balance sheet data for this date"
+          description={`No posted balances were found as of ${asOfDate}. Post journals to populate the statement of financial position.`}
+        />
       )}
 
       {/* ---- Table ---- */}
       {hasData && data && (
-        <div className="rounded-2xl border shadow-sm overflow-x-auto">
+        <ReportTableCard
+          title="Statement of Financial Position"
+          description="Click an account row to inspect the supporting journal activity up to the selected date."
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -232,44 +328,42 @@ export function BalanceSheetClient({
               <SectionBlock
                 label="Assets"
                 section={data.sections.assets}
+                onDrillDown={openDrillDown}
               />
 
               {/* Liabilities */}
               <SectionBlock
                 label="Liabilities"
                 section={data.sections.liabilities}
+                onDrillDown={openDrillDown}
               />
 
               {/* Equity */}
               <SectionBlock
                 label="Equity"
                 section={data.sections.equity}
+                onDrillDown={openDrillDown}
               />
             </TableBody>
           </Table>
-        </div>
+        </ReportTableCard>
       )}
 
       {/* ---- Summary cards ---- */}
       {hasData && data && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Net Assets */}
-          <Card className="rounded-2xl shadow-sm border">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Net Assets</p>
-              <p className="text-xl font-bold tabular-nums">
-                {formatPounds(data.netAssets)}
-              </p>
-            </CardContent>
-          </Card>
+          <SummaryMetricCard
+            label="Net Assets"
+            value={<span className="tabular-nums">{formatPounds(data.netAssets)}</span>}
+            helper="Residual value after liabilities are deducted from assets."
+          />
 
-          {/* Balance check */}
-          <Card className="rounded-2xl shadow-sm border">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Accounting Equation</p>
-              <div className="mt-1 flex items-center gap-2">
+          <SummaryMetricCard
+            label="Accounting Equation"
+            value={
+              <div className="flex items-center gap-2">
                 {data.check.balances ? (
-                  <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-xs">
+                  <Badge className="bg-emerald-100 text-emerald-800 text-xs">
                     Balanced
                   </Badge>
                 ) : (
@@ -278,16 +372,14 @@ export function BalanceSheetClient({
                       Out of balance
                     </Badge>
                     <span className="text-sm text-destructive font-medium tabular-nums">
-                      Difference: {formatPounds(data.check.difference)}
+                      {formatPounds(data.check.difference)}
                     </span>
                   </>
                 )}
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Assets = Liabilities + Equity
-              </p>
-            </CardContent>
-          </Card>
+            }
+            helper="Assets should equal liabilities plus equity."
+          />
         </div>
       )}
 
@@ -297,6 +389,8 @@ export function BalanceSheetClient({
           Balance Sheet as of {asOfDate}
         </p>
       )}
+
+      <DrillDownDialog params={drillDown} onClose={() => setDrillDown(null)} />
     </ReportShell>
   );
 }
@@ -308,9 +402,11 @@ export function BalanceSheetClient({
 function SectionBlock({
   label,
   section,
+  onDrillDown,
 }: {
   label: string;
   section: SBSSection;
+  onDrillDown: (row: SBSAccountRow) => void;
 }) {
   return (
     <>
@@ -330,7 +426,7 @@ function SectionBlock({
         </TableRow>
       ) : (
         section.rows.map((row) => (
-          <AccountRow key={row.accountId} row={row} />
+          <AccountRow key={row.accountId} row={row} onDrillDown={onDrillDown} />
         ))
       )}
 
@@ -346,11 +442,17 @@ function SectionBlock({
   );
 }
 
-function AccountRow({ row }: { row: SBSAccountRow }) {
+function AccountRow({
+  row,
+  onDrillDown,
+}: {
+  row: SBSAccountRow;
+  onDrillDown: (row: SBSAccountRow) => void;
+}) {
   return (
-    <TableRow>
+    <TableRow className="cursor-pointer hover:bg-primary/5" onClick={() => onDrillDown(row)}>
       <TableCell className="font-mono text-xs">{row.accountCode}</TableCell>
-      <TableCell>{row.accountName}</TableCell>
+      <TableCell className="text-primary hover:underline">{row.accountName}</TableCell>
       <TableCell className="text-right tabular-nums">
         {penceToPounds(row.balance)}
       </TableCell>

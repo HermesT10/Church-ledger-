@@ -13,7 +13,12 @@ export default async function NewJournalPage() {
 
   const supabase = await createClient();
 
-  const [{ data: accounts }, { data: funds }, { data: suppliers }] = await Promise.all([
+  const [
+    { data: accounts },
+    { data: funds },
+    { data: suppliers },
+    { data: orgSettings },
+  ] = await Promise.all([
     supabase
       .from('accounts')
       .select('id, code, name')
@@ -32,7 +37,14 @@ export default async function NewJournalPage() {
       .eq('organisation_id', orgId)
       .eq('is_active', true)
       .order('name'),
+    supabase
+      .from('organisation_settings')
+      .select('require_fund_on_journal_lines')
+      .eq('organisation_id', orgId)
+      .maybeSingle(),
   ]);
+
+  const requireFundOnJournalLines = Boolean(orgSettings?.require_fund_on_journal_lines);
 
   return (
     <div className="p-6 max-w-4xl space-y-6">
@@ -50,6 +62,7 @@ export default async function NewJournalPage() {
         funds={funds ?? []}
         suppliers={suppliers ?? []}
         canEdit={true}
+        requireFundOnJournalLines={requireFundOnJournalLines}
       />
     </div>
   );

@@ -4,6 +4,10 @@ import { getActiveOrg } from '@/lib/org';
 import { getPaymentRun } from '@/lib/bills/actions';
 import { listBankAccounts } from '@/lib/banking/bankAccounts';
 import { PaymentRunDetailClient } from './payment-run-detail-client';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Button } from '@/components/ui/button';
 
 export default async function PaymentRunDetailPage({
   params,
@@ -45,23 +49,25 @@ export default async function PaymentRunDetailPage({
   });
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
-      <div>
-        <Link
-          href="/payment-runs"
-          className="text-sm text-muted-foreground hover:underline"
-        >
-          &larr; Back to Payment Runs
-        </Link>
-        <h1 className="text-2xl font-bold mt-2">
-          Payment Run {id.slice(0, 8)}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {run.status === 'draft'
-            ? 'Review invoices and post this payment run.'
-            : 'This payment run has been posted.'}
-        </p>
-      </div>
+    <PageShell className="max-w-6xl">
+      <PageHeader
+        title={`Payment Run ${id.slice(0, 8)}`}
+        subtitle={
+          run.status === 'draft'
+            ? 'Review invoices and approve this payment run.'
+            : run.status === 'approved'
+              ? 'This payment run is approved and ready to post.'
+              : 'This payment run has been posted.'
+        }
+        actions={
+          <div className="flex items-center gap-3">
+            <StatusBadge status={run.status} />
+            <Button asChild variant="outline" size="sm">
+              <Link href="/payment-runs">Back to Payment Runs</Link>
+            </Button>
+          </div>
+        }
+      />
       <PaymentRunDetailClient
         run={{
           id: run.id,
@@ -69,6 +75,7 @@ export default async function PaymentRunDetailPage({
           status: run.status,
           total_pence: Number(run.total_pence),
           journal_id: run.journal_id,
+          attachment_url: run.attachment_url ?? null,
         }}
         items={enrichedItems}
         bankAccounts={(bankAccounts ?? []).map((a) => ({
@@ -77,6 +84,6 @@ export default async function PaymentRunDetailPage({
         }))}
         canEdit={canEdit}
       />
-    </div>
+    </PageShell>
   );
 }

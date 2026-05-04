@@ -1,389 +1,464 @@
 import Link from 'next/link';
 import {
-  Layers,
-  Gift,
+  ArrowRight,
   BarChart3,
-  ArrowLeftRight,
-  TrendingUp,
-  Users,
-  Landmark,
-  Plus,
-  ShieldCheck,
-  ChevronRight,
-  BookOpen,
-  PieChart,
   CheckCircle2,
+  ChevronRight,
+  FileText,
+  Gift,
+  Landmark,
+  Layers,
+  ShieldCheck,
+  Sparkles,
+  WalletCards,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 
-/* ------------------------------------------------------------------ */
-/*  Feature data                                                       */
-/* ------------------------------------------------------------------ */
-
-const FEATURES = [
+const FEATURE_TILES = [
   {
     icon: Layers,
-    title: 'Fund Management',
-    description: 'Track restricted, unrestricted, and designated funds with full SORP compliance.',
-    tint: 'bg-emerald-100/70 dark:bg-emerald-950/20',
-    iconBg: 'bg-emerald-200 dark:bg-emerald-900/40',
-    iconColor: 'text-emerald-600 dark:text-emerald-400',
+    title: 'Fund Accounting',
+    description: 'Track restricted, unrestricted, and designated funds without losing the audit trail.',
+  },
+  {
+    icon: Landmark,
+    title: 'Bank Reconciliation',
+    description: 'Import statements, match transactions, and keep cash records clean month by month.',
   },
   {
     icon: Gift,
-    title: 'Gift Aid Tracking',
-    description: 'Manage declarations, calculate claims, and maximise tax reclaims effortlessly.',
-    tint: 'bg-pink-100/70 dark:bg-pink-950/20',
-    iconBg: 'bg-pink-200 dark:bg-pink-900/40',
-    iconColor: 'text-pink-600 dark:text-pink-400',
+    title: 'Gift Aid Ready',
+    description: 'Manage declarations, donation eligibility, claims, and HMRC-ready schedules in one flow.',
   },
   {
-    icon: BarChart3,
-    title: 'Budgets & Forecasts',
-    description: 'Set annual budgets, track variance, and forecast cash flow across your funds.',
-    tint: 'bg-amber-100/70 dark:bg-amber-950/20',
-    iconBg: 'bg-amber-200 dark:bg-amber-900/40',
-    iconColor: 'text-amber-600 dark:text-amber-400',
-  },
-  {
-    icon: ArrowLeftRight,
-    title: 'Bank Reconciliation',
-    description: 'Import bank statements, auto-match transactions, and reconcile with confidence.',
-    tint: 'bg-blue-100/70 dark:bg-blue-950/20',
-    iconBg: 'bg-blue-200 dark:bg-blue-900/40',
-    iconColor: 'text-blue-600 dark:text-blue-400',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Reports & Compliance',
-    description: 'Generate trustee reports, SOFA statements, and full audit trails in one click.',
-    tint: 'bg-violet-100/70 dark:bg-violet-950/20',
-    iconBg: 'bg-violet-200 dark:bg-violet-900/40',
-    iconColor: 'text-violet-600 dark:text-violet-400',
-  },
-  {
-    icon: Users,
-    title: 'Multi-User Roles',
-    description: 'Admin, treasurer, finance user, trustee viewer — everyone sees what they need.',
-    tint: 'bg-cyan-100/70 dark:bg-cyan-950/20',
-    iconBg: 'bg-cyan-200 dark:bg-cyan-900/40',
-    iconColor: 'text-cyan-600 dark:text-cyan-400',
+    icon: FileText,
+    title: 'Trustee Reporting',
+    description: 'Turn day-to-day activity into board-ready summaries, SOFA views, and annual packs.',
   },
 ] as const;
 
-const TRUST_POINTS = [
-  'Built for UK churches & charities',
-  'Charity SORP-aware accounting',
-  'Gift Aid ready out of the box',
-  'Full audit trail & data export',
+const SHOWCASE_CARDS = [
+  {
+    title: 'Monthly cashflow',
+    caption: 'Income, spend, and fund movement at a glance.',
+    metric: '£18.4k',
+    label: 'January income',
+  },
+  {
+    title: 'Restricted funds',
+    caption: 'Know what can be spent before decisions are made.',
+    metric: '12',
+    label: 'Active funds',
+  },
 ] as const;
 
-/* ------------------------------------------------------------------ */
-/*  Floating Showcase Cards (hero right)                               */
-/* ------------------------------------------------------------------ */
+const TESTIMONIALS = [
+  {
+    eyebrow: 'Treasurer workflow',
+    quote: 'Sunday giving, bills, Gift Aid, and fund reports sit together in one place so month end is easier to finish.',
+    name: 'Treasurer',
+    role: 'Local church finance team',
+  },
+  {
+    eyebrow: 'Trustee confidence',
+    quote: 'Trustees get clear summaries without needing to understand every accounting detail behind the numbers.',
+    name: 'Trustee',
+    role: 'Governance board',
+  },
+  {
+    eyebrow: 'Audit-ready records',
+    quote: 'Every posting, allocation, and reset has a trail, which makes reviews and handovers far less stressful.',
+    name: 'Finance admin',
+    role: 'Operations team',
+  },
+] as const;
 
-function HeroShowcase() {
+function MarketingNav() {
   return (
-    <div className="relative w-full max-w-[400px] h-[420px] mx-auto">
-      {/* Card 1: Balance */}
-      <div className="absolute top-0 left-0 bg-white rounded-2xl shadow-xl p-5 w-[220px] border border-gray-100 dark:bg-gray-900 dark:border-gray-800">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-            <Landmark size={20} className="text-blue-600 dark:text-blue-400" />
-          </div>
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-            Current Balance
-          </span>
-        </div>
-        <p className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
-          £24,359
-        </p>
-        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">+12.4% from last month</p>
-      </div>
-
-      {/* Card 2: Fund Allocation */}
-      <div className="absolute top-[110px] right-0 bg-white rounded-2xl shadow-xl p-5 w-[190px] border border-gray-100 dark:bg-gray-900 dark:border-gray-800">
-        <div className="flex items-center justify-center mb-3">
-          <div className="relative w-20 h-20">
-            <svg viewBox="0 0 36 36" className="w-20 h-20 -rotate-90">
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" className="text-gray-100 dark:text-gray-800" />
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#3b82f6" strokeWidth="3" strokeDasharray="65 35" strokeLinecap="round" />
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#f59e0b" strokeWidth="3" strokeDasharray="20 80" strokeDashoffset="-65" strokeLinecap="round" />
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10b981" strokeWidth="3" strokeDasharray="15 85" strokeDashoffset="-85" strokeLinecap="round" />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-bold text-gray-800 dark:text-gray-100">65%</span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">General</span>
-            </div>
-          </div>
-        </div>
-        <p className="text-center text-xs font-medium text-gray-500 dark:text-gray-400">Fund Allocation</p>
-      </div>
-
-      {/* Card 3: Recent Activity */}
-      <div className="absolute bottom-[60px] left-[10px] bg-white rounded-2xl shadow-xl p-4 w-[240px] border border-gray-100 dark:bg-gray-900 dark:border-gray-800">
-        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Activity</p>
-        <div className="space-y-2.5">
-          {[
-            { label: 'Sunday Collection', amount: '+£1,245', color: 'text-emerald-600 dark:text-emerald-400' },
-            { label: 'Utility Bill', amount: '-£186', color: 'text-rose-600 dark:text-rose-400' },
-            { label: 'Gift Aid Claim', amount: '+£3,420', color: 'text-emerald-600 dark:text-emerald-400' },
-          ].map((tx) => (
-            <div key={tx.label} className="flex items-center justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">{tx.label}</span>
-              <span className={`font-semibold tabular-nums ${tx.color}`}>{tx.amount}</span>
-            </div>
-          ))}
+    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-6 lg:px-8">
+        <Link href="/" className="flex items-center gap-3">
+          <Logo size={38} />
+          <span className="text-lg font-bold tracking-tight">ChurchLedger</span>
+        </Link>
+        <nav className="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex">
+          <a href="#features" className="transition hover:text-foreground">Features</a>
+          <a href="#reporting" className="transition hover:text-foreground">Reporting</a>
+          <a href="#trust" className="transition hover:text-foreground">Trust</a>
+        </nav>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" asChild>
+            <Link href="/login">Log in</Link>
+          </Button>
+          <Button asChild className="rounded-full px-5 shadow-card">
+            <Link href="/signup">
+              Get started
+              <ArrowRight size={16} />
+            </Link>
+          </Button>
         </div>
       </div>
-
-      {/* Card 4: Quick Action */}
-      <div className="absolute bottom-0 right-[20px] bg-white rounded-2xl shadow-xl p-4 w-[160px] border border-dashed border-gray-200 dark:bg-gray-900 dark:border-gray-700">
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white shadow-lg">
-            <Plus size={20} />
-          </div>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">New Journal</span>
-          <span className="text-[10px] text-gray-400">or import CSV</span>
-        </div>
-      </div>
-
-      {/* Decorative gradient blur */}
-      <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-violet-400/20 rounded-full blur-3xl pointer-events-none" />
-    </div>
+    </header>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
-
-export default function HomePage() {
+function PhoneMockup() {
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* ============================================================ */}
-      {/*  Navbar                                                       */}
-      {/* ============================================================ */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
-          <Link href="/" className="flex items-center gap-2.5">
-            <Logo size={36} />
-            <span className="text-lg font-bold tracking-tight">ChurchLedger</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" asChild>
-              <Link href="/login">Log in</Link>
-            </Button>
-            <Button asChild className="bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white shadow-md">
-              <Link href="/signup">Get Started</Link>
-            </Button>
+    <div className="relative mx-auto h-[520px] max-w-[520px] lg:mr-0">
+      <div className="absolute inset-x-4 top-10 h-80 rounded-[3rem] bg-gradient-to-br from-primary/20 via-chart-3/20 to-transparent blur-3xl" />
+      <div className="landing-float absolute right-8 top-0 hidden h-[430px] w-[214px] rounded-[2.4rem] border-[10px] border-foreground bg-background shadow-modal sm:block">
+        <div className="mx-auto mt-3 h-6 w-24 rounded-full bg-foreground" />
+        <div className="p-5 pt-8">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Funds</span>
+            <span>9:41</span>
           </div>
-        </div>
-      </header>
-
-      {/* ============================================================ */}
-      {/*  Hero                                                         */}
-      {/* ============================================================ */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-50/80 via-white to-violet-50/80 dark:from-blue-950/30 dark:via-background dark:to-violet-950/30 pointer-events-none" />
-        <div className="relative max-w-7xl mx-auto px-6 py-20 lg:py-28">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            {/* Left: copy */}
-            <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 rounded-full bg-blue-100/80 dark:bg-blue-900/30 px-4 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 mb-6">
-                <BookOpen size={14} />
-                Purpose-built for UK churches
-              </div>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.1]">
-                Church finances,{' '}
-                <span className="bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
-                  made simple
-                </span>
-              </h1>
-              <p className="mt-6 text-lg text-muted-foreground leading-relaxed max-w-md">
-                Manage funds, track Gift Aid, reconcile bank accounts, and generate trustee reports — all in one place.
-              </p>
-              <div className="flex flex-wrap items-center gap-4 mt-8">
-                <Button asChild size="lg" className="bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white shadow-lg h-12 px-8 text-base">
-                  <Link href="/signup">
-                    Get Started Free
-                    <ChevronRight size={18} />
-                  </Link>
-                </Button>
-                <Button variant="outline" size="lg" asChild className="h-12 px-8 text-base">
-                  <a href="#features">See Features</a>
-                </Button>
-              </div>
-              <div className="flex items-center gap-6 mt-8 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 size={15} className="text-emerald-500" />
-                  Free to start
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 size={15} className="text-emerald-500" />
-                  No credit card
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 size={15} className="text-emerald-500" />
-                  SORP-ready
-                </span>
-              </div>
-            </div>
-
-            {/* Right: showcase */}
-            <div className="hidden lg:block">
-              <HeroShowcase />
+          <div className="mt-6 rounded-3xl bg-foreground p-4 text-background">
+            <p className="text-xs text-background/60">Available cash</p>
+            <p className="mt-2 text-3xl font-bold">£24,359</p>
+            <div className="mt-4 h-2 rounded-full bg-background/20">
+              <div className="h-2 w-2/3 rounded-full bg-primary" />
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  Features                                                     */}
-      {/* ============================================================ */}
-      <section id="features" className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
-              Everything your church needs
-            </h2>
-            <p className="mt-4 text-lg text-muted-foreground">
-              From Sunday collections to year-end reports, ChurchLedger handles the full financial lifecycle.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURES.map((f) => {
-              const Icon = f.icon;
-              return (
-                <div
-                  key={f.title}
-                  className={`rounded-2xl border border-transparent p-6 transition-shadow hover:shadow-lg ${f.tint}`}
-                >
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 ${f.iconBg}`}>
-                    <Icon size={22} className={f.iconColor} />
-                  </div>
-                  <h3 className="text-base font-semibold mb-2">{f.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {f.description}
-                  </p>
+          <div className="mt-4 space-y-3">
+            {['General Fund', 'Youth Fund', 'Building Fund'].map((item, index) => (
+              <div key={item} className="rounded-2xl border border-border/70 bg-card p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium">{item}</span>
+                  <span className="text-muted-foreground">{[64, 22, 14][index]}%</span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  Trust / credibility strip                                    */}
-      {/* ============================================================ */}
-      <section className="border-y bg-muted/30">
-        <div className="max-w-7xl mx-auto px-6 py-16">
-          <div className="flex flex-col items-center text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-4">
-              <ShieldCheck size={24} className="text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-6">
-              Built with trust at the core
-            </h2>
-            <div className="flex flex-wrap justify-center gap-x-10 gap-y-4">
-              {TRUST_POINTS.map((point) => (
-                <span key={point} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                  {point}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  How it works                                                 */}
-      {/* ============================================================ */}
-      <section className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
-              Up and running in minutes
-            </h2>
-            <p className="mt-4 text-lg text-muted-foreground">
-              No complicated setup. No accounting degree required.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[
-              {
-                step: '1',
-                title: 'Create your organisation',
-                description: 'Sign up, name your church, and invite your treasurer and trustees.',
-              },
-              {
-                step: '2',
-                title: 'Set up your funds & accounts',
-                description: 'Use our guided setup wizard or import your existing chart of accounts.',
-              },
-              {
-                step: '3',
-                title: 'Start recording & reporting',
-                description: 'Record journals, reconcile your bank, and generate reports instantly.',
-              },
-            ].map((item) => (
-              <div key={item.step} className="text-center">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white flex items-center justify-center mx-auto mb-4 text-lg font-bold shadow-lg">
-                  {item.step}
+                <div className="mt-2 h-1.5 rounded-full bg-muted">
+                  <div
+                    className="h-1.5 rounded-full bg-primary"
+                    style={{ width: `${[64, 22, 14][index]}%` }}
+                  />
                 </div>
-                <h3 className="text-base font-semibold mb-2">{item.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {item.description}
-                </p>
               </div>
             ))}
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* ============================================================ */}
-      {/*  CTA                                                          */}
-      {/* ============================================================ */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-violet-600 pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.15),transparent_60%)] pointer-events-none" />
-        <div className="relative max-w-3xl mx-auto px-6 py-20 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
-            Ready to simplify your church finances?
-          </h2>
-          <p className="mt-4 text-lg text-blue-100 max-w-lg mx-auto">
-            Join churches already using ChurchLedger to manage their funds with clarity and confidence.
+      <div className="landing-float-slow absolute left-0 top-28 w-[330px] rounded-[2rem] border border-border/70 bg-card/95 p-6 shadow-modal backdrop-blur">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Cash position</p>
+            <p className="mt-2 text-4xl font-bold tracking-tight">£24,359</p>
+          </div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-primary">
+            <WalletCards size={22} />
+          </div>
+        </div>
+        <div className="mt-6 grid grid-cols-7 items-end gap-2">
+          {[40, 54, 44, 70, 86, 61, 74].map((height, index) => (
+            <div key={index} className="rounded-full bg-muted">
+              <div
+                className="rounded-full bg-gradient-to-t from-primary to-chart-2"
+                style={{ height }}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 flex items-center justify-between rounded-2xl bg-success-soft p-3 text-sm">
+          <span className="font-medium text-success">Gift Aid claim ready</span>
+          <span className="font-semibold text-success">£3,420</span>
+        </div>
+      </div>
+
+      <div className="landing-float absolute bottom-10 right-4 w-64 rounded-3xl border border-border/70 bg-card p-4 shadow-card">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Recent activity</p>
+        <div className="mt-4 space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span>Sunday collection</span>
+            <span className="font-semibold text-success">+£1,245</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Utilities</span>
+            <span className="font-semibold text-danger">-£186</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Restricted grant</span>
+            <span className="font-semibold text-success">+£5,000</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroSection() {
+  return (
+    <section className="relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,color-mix(in_srgb,var(--primary)_18%,transparent),transparent_34%),radial-gradient(circle_at_20%_0%,color-mix(in_srgb,var(--chart-2)_14%,transparent),transparent_28%)]" />
+      <div className="relative mx-auto grid max-w-7xl gap-12 px-5 py-16 sm:px-6 md:py-24 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-28">
+        <div className="flex flex-col justify-center">
+          <div className="landing-fade-up inline-flex w-fit items-center gap-2 rounded-full border border-border/70 bg-card/80 px-4 py-2 text-sm font-medium text-muted-foreground shadow-card backdrop-blur">
+            <Sparkles size={15} className="text-primary" />
+            Purpose-built finance for UK churches
+          </div>
+          <h1 className="landing-fade-up mt-7 max-w-3xl text-5xl font-black tracking-[-0.07em] text-foreground sm:text-6xl lg:text-7xl">
+            Church finances made incredibly simple.
+          </h1>
+          <p className="landing-fade-up mt-6 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
+            Manage restricted funds, Gift Aid, bank reconciliation, budgets, and trustee reports in one calm workspace built for church teams.
           </p>
-          <div className="flex flex-wrap justify-center gap-4 mt-8">
-            <Button asChild size="lg" className="bg-white text-blue-700 hover:bg-blue-50 shadow-lg h-12 px-8 text-base font-semibold">
+          <div className="landing-fade-up mt-9 flex flex-wrap gap-3">
+            <Button size="lg" asChild className="h-12 rounded-full px-7 shadow-card">
               <Link href="/signup">
-                Get Started Free
+                Start free
                 <ChevronRight size={18} />
               </Link>
             </Button>
+            <Button size="lg" variant="outline" asChild className="h-12 rounded-full px-7 bg-card/80">
+              <a href="#features">Explore features</a>
+            </Button>
+          </div>
+          <div className="landing-fade-up mt-10 grid max-w-xl grid-cols-3 gap-5 border-t border-border/70 pt-7">
+            <div>
+              <p className="text-3xl font-bold tracking-tight">SORP</p>
+              <p className="mt-1 text-xs text-muted-foreground">Aware reporting</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold tracking-tight">Roles</p>
+              <p className="mt-1 text-xs text-muted-foreground">For trustees and finance teams</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold tracking-tight">Audit</p>
+              <p className="mt-1 text-xs text-muted-foreground">Trails by default</p>
+            </div>
           </div>
         </div>
-      </section>
+        <PhoneMockup />
+      </div>
+    </section>
+  );
+}
 
-      {/* ============================================================ */}
-      {/*  Footer                                                       */}
-      {/* ============================================================ */}
-      <footer className="border-t bg-muted/20">
-        <div className="max-w-7xl mx-auto px-6 py-10">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
-              <Logo size={28} />
-              <span className="text-sm font-semibold">ChurchLedger</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              &copy; {new Date().getFullYear()} ChurchLedger. All rights reserved.
-            </p>
+function DarkFeatureBand() {
+  return (
+    <section id="features" className="px-5 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-6xl gap-12 rounded-[2rem] bg-foreground p-8 text-background shadow-modal sm:rounded-[3rem] sm:p-12 lg:grid-cols-[0.75fr_1.25fr] lg:p-16">
+        <div className="flex flex-col justify-between gap-10">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-background/45">Finally, a better way</p>
+            <h2 className="mt-4 text-4xl font-black tracking-[-0.06em] sm:text-5xl">
+              Simple church payments, funds, and reports.
+            </h2>
           </div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+              <ShieldCheck size={20} />
+            </div>
+            <div className="text-sm">
+              <p className="font-semibold">Secure, role-aware workflows</p>
+              <p className="text-background/50">Designed for accountable stewardship.</p>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2">
+          {FEATURE_TILES.map((feature) => {
+            const Icon = feature.icon;
+            return (
+              <div key={feature.title} className="border-b border-background/10 pb-8">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-background/10 bg-background/10">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="text-lg font-semibold">{feature.title}</h3>
+                </div>
+                <p className="mt-5 text-sm leading-6 text-background/55">{feature.description}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PeaceOfMindSection() {
+  return (
+    <section id="reporting" className="overflow-hidden px-5 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <h2 className="max-w-4xl text-5xl font-black tracking-[-0.07em] sm:text-6xl lg:text-7xl">
+          Experience your finances with peace of mind.
+        </h2>
+        <div className="mt-12 grid gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="relative min-h-[420px] overflow-hidden rounded-[2rem] bg-[#071129] p-8 shadow-modal">
+            <div className="absolute -right-24 top-8 h-80 w-80 rounded-full bg-primary/40 blur-3xl" />
+            <div className="absolute -bottom-24 left-4 h-72 w-72 rounded-full bg-info/30 blur-3xl" />
+            <div className="relative rounded-[1.75rem] border border-white/10 bg-white/10 p-6 text-white backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Trustee pack</p>
+              <p className="mt-4 text-4xl font-bold">Ready for review</p>
+              <div className="mt-8 space-y-4">
+                {['Cash position reconciled', 'Gift Aid schedule checked', 'Fund report generated'].map((item) => (
+                  <div key={item} className="flex items-center gap-3 rounded-2xl bg-white/10 p-3 text-sm">
+                    <CheckCircle2 size={16} className="text-success" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-7">
+            <div className="border-b border-border/70 pb-7">
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="text-lg font-bold">Fast month-end close</h3>
+                <ArrowRight size={18} />
+              </div>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                See open bank allocations, unreconciled lines, overspend risks, and report readiness before trustees ask.
+              </p>
+            </div>
+            <div className="border-b border-border/70 pb-7">
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="text-lg font-bold">User-friendly experience</h3>
+                <ArrowRight size={18} />
+              </div>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Treasurer, finance user, trustee, and auditor views keep each person focused on what matters to them.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div className="rounded-3xl bg-muted/70 p-6">
+                <p className="text-5xl font-black tracking-tight">4</p>
+                <p className="mt-1 text-sm font-medium">Core workflows</p>
+                <p className="mt-8 text-sm text-muted-foreground">Funds, banking, Gift Aid, reports.</p>
+              </div>
+              <div className="rounded-3xl bg-foreground p-6 text-background">
+                <p className="text-5xl font-black tracking-tight">24/7</p>
+                <p className="mt-1 text-sm font-medium">Audit trail</p>
+                <p className="mt-8 text-sm text-background/55">Every important action is recorded.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ShowcaseSection() {
+  return (
+    <section className="px-5 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Best experience</p>
+          <h2 className="mt-3 text-4xl font-black tracking-[-0.06em] sm:text-5xl">Feel the difference in every finance task</h2>
+        </div>
+        <div className="mt-12 grid gap-6 lg:grid-cols-2">
+          {SHOWCASE_CARDS.map((card, index) => (
+            <div key={card.title} className="min-h-[360px] rounded-[2rem] bg-gradient-to-br from-muted/60 to-card p-8 shadow-card">
+              <div className="relative mx-auto h-52 max-w-sm">
+                <div className="absolute left-4 top-0 w-64 rounded-3xl border border-border/70 bg-card p-5 shadow-card">
+                  <p className="text-xs text-muted-foreground">{card.title}</p>
+                  <p className="mt-3 text-3xl font-bold">{card.metric}</p>
+                  <p className="mt-1 text-xs text-success">{card.label}</p>
+                  <div className="mt-6 grid grid-cols-6 items-end gap-2">
+                    {[36, 48, 42, 80, 55, 70].map((height, barIndex) => (
+                      <div key={barIndex} className="rounded-full bg-muted">
+                        <div
+                          className={index === 0 ? 'rounded-full bg-primary' : 'rounded-full bg-success'}
+                          style={{ height }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="landing-float absolute bottom-0 right-0 w-40 rounded-3xl border border-border/70 bg-card p-4 shadow-modal">
+                  <BarChart3 size={18} className="text-primary" />
+                  <p className="mt-5 text-sm font-semibold">Ready report</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Trustee summary</p>
+                </div>
+              </div>
+              <div className="mt-7 text-center">
+                <h3 className="text-lg font-bold">{card.title}</h3>
+                <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">{card.caption}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TrustSection() {
+  return (
+    <section id="trust" className="overflow-hidden px-5 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <h2 className="max-w-4xl text-5xl font-black tracking-[-0.07em] sm:text-6xl">
+          Trusted by teams who need calm, clear stewardship.
+        </h2>
+        <div className="mt-10 grid border-y border-border/70 md:grid-cols-[0.6fr_1fr_1fr_1fr]">
+          <div className="flex flex-col justify-center border-b border-border/70 p-8 md:border-b-0 md:border-r">
+            <p className="text-5xl font-black">4.9</p>
+            <p className="mt-3 text-sm text-muted-foreground">Designed for confidence, review, and handover.</p>
+            <div className="mt-6 flex text-warning">★★★★★</div>
+          </div>
+          {TESTIMONIALS.map((item) => (
+            <div key={item.eyebrow} className="border-b border-border/70 p-8 md:border-b-0 md:border-r last:border-r-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.eyebrow}</p>
+              <p className="mt-6 text-sm leading-7">
+                “{item.quote}”
+              </p>
+              <div className="mt-12">
+                <p className="font-semibold">{item.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{item.role}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FinalCta() {
+  return (
+    <section className="px-5 pb-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-foreground p-8 text-background shadow-modal sm:rounded-[3rem] sm:p-12">
+        <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-background/45">Start fresh</p>
+            <h2 className="mt-3 max-w-2xl text-4xl font-black tracking-[-0.06em] sm:text-5xl">
+              Create your church finance workspace today.
+            </h2>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button size="lg" asChild className="rounded-full bg-background px-7 text-foreground hover:bg-background/90">
+              <Link href="/signup">Get started now</Link>
+            </Button>
+            <Button size="lg" variant="outline" asChild className="rounded-full border-background/30 bg-transparent px-7 text-background hover:bg-background/10 hover:text-background">
+              <Link href="/login">Log in</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <MarketingNav />
+      <main>
+        <HeroSection />
+        <DarkFeatureBand />
+        <PeaceOfMindSection />
+        <ShowcaseSection />
+        <TrustSection />
+        <FinalCta />
+      </main>
+      <footer className="border-t border-border/70 px-5 py-8 text-sm text-muted-foreground sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Logo size={32} />
+            <span className="font-semibold text-foreground">ChurchLedger</span>
+          </div>
+          <p>Simple, transparent church accounting.</p>
         </div>
       </footer>
     </div>

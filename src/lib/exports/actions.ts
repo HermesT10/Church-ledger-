@@ -2,7 +2,15 @@
 
 import { getActiveOrg } from '@/lib/org';
 import { getTrialBalance, getSOFAReport, getSupplierSpendReport, getCashPositionReport } from '@/lib/reports/glReports';
-import { getIncomeExpenditureReport, getBalanceSheetReport, getFundMovementsReport, getCashFlowReport } from '@/lib/reports/actions';
+import {
+  getBalanceSheetReport,
+  getBudgetVsActualReport,
+  getCashFlowReport,
+  getFundMovementsReport,
+  getIncomeExpenditureReport,
+  getTrusteeSnapshot,
+} from '@/lib/reports/actions';
+import { getBankReconciliationSummaryReport, getGiftAidSummaryReport, getLeadershipSnapshotReport } from '@/lib/reports/summaryReports';
 import { buildCsv, penceToPoundsStr, type CsvColumn } from './csvExport';
 
 /* ================================================================== */
@@ -245,6 +253,154 @@ export async function exportCashFlowCsv(params: {
   return { data: buildCsv(rows, columns), error: null };
 }
 
+export async function exportGiftAidSummaryCsv(): Promise<{ data: string | null; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const { data: report, error } = await getGiftAidSummaryReport({ organisationId: orgId });
+  if (error || !report) return { data: null, error: error ?? 'No data.' };
+
+  type Row = (typeof report.recentClaims)[number];
+  const columns: CsvColumn<Row>[] = [
+    { header: 'Claim ID', accessor: (row) => row.claimId },
+    { header: 'Reference', accessor: (row) => row.reference ?? '' },
+    { header: 'Status', accessor: (row) => row.status },
+    { header: 'Claim Start', accessor: (row) => row.claimStart },
+    { header: 'Claim End', accessor: (row) => row.claimEnd },
+    { header: 'Gift Aid (£)', accessor: (row) => penceToPoundsStr(row.totalGiftAidPence) },
+    { header: 'Donations (£)', accessor: (row) => penceToPoundsStr(row.totalDonationsPence) },
+  ];
+
+  return { data: buildCsv(report.recentClaims, columns), error: null };
+}
+
+export async function exportBankReconciliationSummaryCsv(): Promise<{ data: string | null; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const { data: report, error } = await getBankReconciliationSummaryReport({ organisationId: orgId });
+  if (error || !report) return { data: null, error: error ?? 'No data.' };
+
+  type Row = (typeof report.rows)[number];
+  const columns: CsvColumn<Row>[] = [
+    { header: 'Bank Account', accessor: (row) => row.bankAccountName },
+    { header: 'Latest Statement Date', accessor: (row) => row.lastStatementDate ?? '' },
+    {
+      header: 'Statement Balance (£)',
+      accessor: (row) => row.statementBalancePence === null ? 'N/A' : penceToPoundsStr(row.statementBalancePence),
+    },
+    { header: 'Ledger Balance (£)', accessor: (row) => penceToPoundsStr(row.glBalancePence) },
+    { header: 'Difference (£)', accessor: (row) => penceToPoundsStr(row.differencePence) },
+    { header: 'Unreconciled Lines', accessor: (row) => row.unreconciledLines },
+  ];
+
+  return { data: buildCsv(report.rows, columns), error: null };
+}
+
+export async function exportLeadershipSnapshotCsv(): Promise<{ data: string | null; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const { data: report, error } = await getLeadershipSnapshotReport({
+    organisationId: orgId,
+    period: 'this_month',
+  });
+  if (error || !report) return { data: null, error: error ?? 'No data.' };
+
+  type Row = { section: string; item: string; value: string };
+  const rows: Row[] = [
+    { section: 'Summary', item: 'Plain English', value: report.plainEnglishSummary },
+    { section: 'Cash', item: 'Total Cash (£)', value: penceToPoundsStr(report.trusteeSnapshot.cash.total) },
+    { section: 'Funds', item: 'Restricted (£)', value: penceToPoundsStr(report.trusteeSnapshot.funds.restrictedTotal) },
+    { section: 'Funds', item: 'Unrestricted (£)', value: penceToPoundsStr(report.trusteeSnapshot.funds.unrestrictedTotal) },
+    { section: 'Operations', item: 'YTD Surplus (£)', value: penceToPoundsStr(report.trusteeSnapshot.incomeExpenditure.ytd.surplus) },
+    { section: 'Forecast', item: 'Risk', value: report.trusteeSnapshot.forecast.riskLevel },
+  ];
+
+  for (const action of report.recommendedActions) {
+    rows.push({ section: 'Action', item: 'Recommended', value: action });
+  }
+
+  const columns: CsvColumn<Row>[] = [
+    { header: 'Section', accessor: (row) => row.section },
+    { header: 'Item', accessor: (row) => row.item },
+    { header: 'Value', accessor: (row) => row.value },
+  ];
+
+  return { data: buildCsv(rows, columns), error: null };
+}
+
+export async function exportBudgetVsActualCsv(params: {
+  year: number;
+  budgetId?: string;
+  fundId?: string | null;
+}): Promise<{ data: string | null; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const { data: report, error } = await getBudgetVsActualReport({
+    orgId,
+    ...params,
+  });
+  if (error || !report) return { data: null, error: error ?? 'No data.' };
+
+  type Row = (typeof report.rows)[number];
+  const columns: CsvColumn<Row>[] = [
+    { header: 'Account Code', accessor: (row) => row.accountCode },
+    { header: 'Account Name', accessor: (row) => row.accountName },
+    { header: 'Account Type', accessor: (row) => row.accountType },
+    { header: 'YTD Budget (£)', accessor: (row) => penceToPoundsStr(row.ytd.budget) },
+    { header: 'YTD Actual (£)', accessor: (row) => penceToPoundsStr(row.ytd.actual) },
+    { header: 'YTD Variance (£)', accessor: (row) => penceToPoundsStr(row.ytd.variance) },
+    { header: 'YTD Variance %', accessor: (row) => row.ytd.variancePct === null ? 'N/A' : `${row.ytd.variancePct.toFixed(1)}%` },
+    { header: 'Annual Budget (£)', accessor: (row) => penceToPoundsStr(row.annual.budget) },
+    { header: 'Annual Actual (£)', accessor: (row) => penceToPoundsStr(row.annual.actual) },
+    { header: 'Annual Variance (£)', accessor: (row) => penceToPoundsStr(row.annual.variance) },
+  ];
+
+  return { data: buildCsv(report.rows, columns), error: null };
+}
+
+export async function exportTrusteeSnapshotCsv(): Promise<{ data: string | null; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const { data: report, error } = await getTrusteeSnapshot({ organisationId: orgId });
+  if (error || !report) return { data: null, error: error ?? 'No data.' };
+
+  type Row = { section: string; item: string; value: string };
+  const rows: Row[] = [
+    { section: 'Metadata', item: 'As Of Date', value: report.asOfDate },
+    { section: 'Cash', item: 'Total Cash (£)', value: penceToPoundsStr(report.cash.total) },
+    { section: 'Funds', item: 'Restricted (£)', value: penceToPoundsStr(report.funds.restrictedTotal) },
+    { section: 'Funds', item: 'Designated (£)', value: penceToPoundsStr(report.funds.designatedTotal) },
+    { section: 'Funds', item: 'Unrestricted (£)', value: penceToPoundsStr(report.funds.unrestrictedTotal) },
+    { section: 'Income & Expenditure', item: 'MTD Income (£)', value: penceToPoundsStr(report.incomeExpenditure.mtd.income) },
+    { section: 'Income & Expenditure', item: 'MTD Expense (£)', value: penceToPoundsStr(report.incomeExpenditure.mtd.expense) },
+    { section: 'Income & Expenditure', item: 'MTD Surplus (£)', value: penceToPoundsStr(report.incomeExpenditure.mtd.surplus) },
+    { section: 'Income & Expenditure', item: 'YTD Income (£)', value: penceToPoundsStr(report.incomeExpenditure.ytd.income) },
+    { section: 'Income & Expenditure', item: 'YTD Expense (£)', value: penceToPoundsStr(report.incomeExpenditure.ytd.expense) },
+    { section: 'Income & Expenditure', item: 'YTD Surplus (£)', value: penceToPoundsStr(report.incomeExpenditure.ytd.surplus) },
+    { section: 'Forecast', item: 'Baseline Year End (£)', value: penceToPoundsStr(report.forecast.baselineYE) },
+    { section: 'Forecast', item: 'Trend Year End (£)', value: penceToPoundsStr(report.forecast.trendYE) },
+    { section: 'Forecast', item: 'Risk Level', value: report.forecast.riskLevel },
+  ];
+
+  for (const cashItem of report.cash.items) {
+    rows.push({
+      section: 'Cash Account',
+      item: cashItem.accountName,
+      value: penceToPoundsStr(cashItem.balance),
+    });
+  }
+
+  for (const variance of report.topVariances) {
+    rows.push({
+      section: 'Top Variance',
+      item: `${variance.accountCode} ${variance.accountName}`,
+      value: penceToPoundsStr(variance.adverseVariancePence),
+    });
+  }
+
+  const columns: CsvColumn<Row>[] = [
+    { header: 'Section', accessor: (row) => row.section },
+    { header: 'Item', accessor: (row) => row.item },
+    { header: 'Value', accessor: (row) => row.value },
+  ];
+
+  return { data: buildCsv(rows, columns), error: null };
+}
+
 /* ================================================================== */
 /*  Trustee Export Pack — combines all key reports                      */
 /* ================================================================== */
@@ -264,7 +420,7 @@ export async function generateTrusteeExportPack(params: {
   const results: TrusteePackReport[] = [];
 
   // Generate all reports in parallel
-  const [tbRes, ieRes, bsRes, sofaRes, fmRes, ssRes, cpRes, cfRes] = await Promise.all([
+  const [tbRes, ieRes, bsRes, sofaRes, fmRes, ssRes, cpRes, cfRes, gaRes, brRes, leadershipRes, bvaRes, trusteeRes] = await Promise.all([
     exportTrialBalanceCsv({ asOfDate }),
     exportIncomeExpenditureCsv({ year }),
     exportBalanceSheetCsv({ asOfDate }),
@@ -273,6 +429,11 @@ export async function generateTrusteeExportPack(params: {
     exportSupplierSpendCsv({ year }),
     exportCashPositionCsv(),
     exportCashFlowCsv({ year }),
+    exportGiftAidSummaryCsv(),
+    exportBankReconciliationSummaryCsv(),
+    exportLeadershipSnapshotCsv(),
+    exportBudgetVsActualCsv({ year }),
+    exportTrusteeSnapshotCsv(),
   ]);
 
   if (tbRes.data) results.push({ name: `trial-balance-${asOfDate}.csv`, csv: tbRes.data });
@@ -283,6 +444,11 @@ export async function generateTrusteeExportPack(params: {
   if (ssRes.data) results.push({ name: `supplier-spend-${year}.csv`, csv: ssRes.data });
   if (cpRes.data) results.push({ name: `cash-position-${asOfDate}.csv`, csv: cpRes.data });
   if (cfRes.data) results.push({ name: `cash-flow-${year}.csv`, csv: cfRes.data });
+  if (gaRes.data) results.push({ name: `gift-aid-summary-${asOfDate}.csv`, csv: gaRes.data });
+  if (brRes.data) results.push({ name: `bank-reconciliation-summary-${asOfDate}.csv`, csv: brRes.data });
+  if (leadershipRes.data) results.push({ name: `leadership-snapshot-${asOfDate}.csv`, csv: leadershipRes.data });
+  if (bvaRes.data) results.push({ name: `budget-vs-actual-${year}.csv`, csv: bvaRes.data });
+  if (trusteeRes.data) results.push({ name: `trustee-snapshot-${asOfDate}.csv`, csv: trusteeRes.data });
 
   return { data: results, error: null };
 }

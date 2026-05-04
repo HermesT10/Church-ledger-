@@ -2,7 +2,10 @@
 
 import { useTransition } from 'react';
 import Link from 'next/link';
-import { exportGiftAidClaimCsv } from '@/lib/giftaid/actions';
+import {
+  exportGiftAidClaimCsv,
+  getGiftAidExportDownloadUrl,
+} from '@/lib/giftaid/actions';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Download, Eye } from 'lucide-react';
@@ -12,28 +15,40 @@ import { Download, Eye } from 'lucide-react';
 /*  Renders the "View" and "Export CSV" buttons for each claim row.    */
 /* ------------------------------------------------------------------ */
 
-export function GiftAidListActions({ claimId }: { claimId: string }) {
+export function GiftAidListActions({
+  claimId,
+  latestExportId,
+}: {
+  claimId: string;
+  latestExportId: string | null;
+}) {
   const [isPending, startTransition] = useTransition();
 
   const handleExport = () => {
     startTransition(async () => {
-      const { data, error } = await exportGiftAidClaimCsv({ claimId });
-      if (error || !data) {
-        toast.error(error ?? 'Failed to export CSV.');
+      const exportResult = latestExportId
+        ? await getGiftAidExportDownloadUrl({ exportId: latestExportId })
+        : await exportGiftAidClaimCsv({ claimId }).then(async (result) => {
+            if (result.error || !result.data) {
+              return { data: null, error: result.error };
+            }
+            return getGiftAidExportDownloadUrl({
+              exportId: result.data.exportId,
+            });
+          });
+
+      if (exportResult.error || !exportResult.data) {
+        toast.error(exportResult.error ?? 'Failed to download HMRC schedule.');
         return;
       }
 
-      // Create a blob download
-      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `gift-aid-claim-${claimId.slice(0, 8)}.csv`;
+      link.href = exportResult.data.url;
+      link.download = exportResult.data.fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success('CSV downloaded.');
+      toast.success('HMRC Gift Aid schedule downloaded.');
     });
   };
 
@@ -52,7 +67,13 @@ export function GiftAidListActions({ claimId }: { claimId: string }) {
         disabled={isPending}
       >
         <Download size={14} className="mr-1" />
-        {isPending ? 'Exporting…' : 'CSV'}
+        {isPending
+          ? latestExportId
+            ? 'Downloading...'
+            : 'Exporting...'
+          : latestExportId
+            ? 'Download'
+            : 'Export'}
       </Button>
     </div>
   );

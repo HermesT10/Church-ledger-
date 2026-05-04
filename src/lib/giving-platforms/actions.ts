@@ -36,7 +36,7 @@ export async function getGivingPlatforms(
     .map((d) => d.donations_income_account_id)
     .filter((id): id is string => !!id);
 
-  let incomeMap = new Map<string, { code: string; name: string }>();
+  const incomeMap = new Map<string, { code: string; name: string }>();
   if (incomeIds.length > 0) {
     const { data: incAccts } = await supabase
       .from('accounts')

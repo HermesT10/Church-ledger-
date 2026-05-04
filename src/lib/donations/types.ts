@@ -42,6 +42,9 @@ export interface DonationRow {
   source: string;
   fund_id: string | null;
   fund_name: string | null;
+  /** Optional analytic tag (migration 00071) */
+  income_stream_id?: string | null;
+  income_stream_label?: string | null;
   gross_amount_pence: number;
   fee_amount_pence: number;
   net_amount_pence: number;
@@ -50,8 +53,12 @@ export interface DonationRow {
   gift_aid_claim_id: string | null;
   import_batch_id: string | null;
   journal_id: string | null;
-  status: 'draft' | 'posted';
+  status: 'draft' | 'posted' | 'voided' | 'corrected';
   created_at: string;
+  bank_transaction_id?: string | null;
+  corrected_at?: string | null;
+  correction_reason?: string | null;
+  reversal_journal_id?: string | null;
 }
 
 /* ------------------------------------------------------------------ */

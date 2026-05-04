@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { getActiveOrg } from '@/lib/org';
-import { createClient } from '@/lib/supabase/server';
-import { Receipt, Pencil, CheckCircle, BookCheck, Wallet, AlertTriangle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, AlertTriangle, Receipt, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/stat-card';
 import { PageShell } from '@/components/page-shell';
 import { PageHeader } from '@/components/page-header';
+import { WorkspaceEmptyState } from '@/components/workspace-empty-state';
+import { MoneyAmount } from '@/components/money/money-amount';
+import { formatMoney } from '@/lib/money/format-money';
 import {
   Table,
   TableBody,
@@ -15,74 +17,77 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { listInvoiceHubItems } from '@/lib/invoices/actions';
+import type { InvoiceHubItem, InvoiceHubTab } from '@/lib/invoices/types';
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  approved: 'Approved',
-  posted: 'Posted',
-  paid: 'Paid',
-};
+const VALID_TABS: InvoiceHubTab[] = ['bills-to-pay', 'owed-to-us', 'all', 'drafts', 'overdue'];
 
-const STATUS_BADGE_COLORS: Record<string, string> = {
-  draft: 'bg-amber-100 text-amber-800 border-amber-200',
-  approved: 'bg-blue-100 text-blue-800 border-blue-200',
-  posted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  paid: 'bg-teal-100 text-teal-800 border-teal-200',
+const TAB_LABELS: Record<InvoiceHubTab, string> = {
+  'bills-to-pay': 'Bills to Pay',
+  'owed-to-us': 'Invoices Owed to Us',
+  all: 'All',
+  drafts: 'Drafts',
+  overdue: 'Overdue',
 };
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-GB', {
+  return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   });
 }
 
-function formatPounds(pence: number): string {
-  return '£' + (pence / 100).toFixed(2);
+function statusLabel(status: string) {
+  return status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'paid' || status === 'sent' || status === 'posted') return 'default';
+  if (status === 'voided') return 'destructive';
+  if (status === 'draft') return 'secondary';
+  return 'outline';
+}
+
+function directionLabel(item: InvoiceHubItem) {
+  return item.direction === 'payable' ? 'Bill to Pay' : 'Owed to Us';
 }
 
 export default async function BillsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
-  const { orgId, role } = await getActiveOrg();
-  const supabase = await createClient();
+  const { role } = await getActiveOrg();
   const params = await searchParams;
-
-  let query = supabase
-    .from('bills')
-    .select('*, suppliers(name)')
-    .eq('organisation_id', orgId)
-    .order('bill_date', { ascending: false });
-
-  if (params.status && params.status !== 'all') {
-    query = query.eq('status', params.status);
-  }
-
-  const { data: bills } = await query;
-  const allBills = bills ?? [];
-
+  const tab = VALID_TABS.includes(params.tab as InvoiceHubTab) ? (params.tab as InvoiceHubTab) : 'bills-to-pay';
+  const [{ data: allItems, error }, { data: visibleItems }] = await Promise.all([
+    listInvoiceHubItems('all'),
+    listInvoiceHubItems(tab),
+  ]);
+  const all = allItems ?? [];
+  const items = visibleItems ?? [];
   const canEdit = role === 'admin' || role === 'treasurer';
-
-  const totalCount = allBills.length;
-  const draftCount = allBills.filter((b) => b.status === 'draft').length;
-  const approvedCount = allBills.filter((b) => b.status === 'approved').length;
-  const postedCount = allBills.filter((b) => b.status === 'posted').length;
-  const paidCount = allBills.filter((b) => b.status === 'paid').length;
-
   const today = new Date().toISOString().slice(0, 10);
-  const overdueCount = allBills.filter(
-    (b) => b.due_date && b.due_date < today && b.status !== 'paid'
+
+  const payableCount = all.filter((item) => item.direction === 'payable').length;
+  const receivableCount = all.filter((item) => item.direction === 'receivable').length;
+  const draftCount = all.filter((item) => item.status === 'draft').length;
+  const overdueCount = all.filter(
+    (item) => item.dueDate && item.dueDate < today && item.paymentStatus !== 'paid' && item.status !== 'voided',
   ).length;
+  const outstandingPayable = all
+    .filter((item) => item.direction === 'payable' && item.paymentStatus !== 'paid')
+    .reduce((sum, item) => sum + item.totalPence, 0);
+  const outstandingReceivable = all
+    .filter((item) => item.direction === 'receivable' && item.paymentStatus !== 'paid')
+    .reduce((sum, item) => sum + item.totalPence - ('paidPence' in item ? item.paidPence : 0), 0);
 
   return (
     <PageShell>
-      {/* Header */}
       <PageHeader
         title="Invoices"
-        subtitle="Track supplier invoices from draft to payment."
+        subtitle="Manage Bills to Pay and Invoices Owed to Us."
         actions={
           canEdit ? (
             <Button asChild>
@@ -92,132 +97,72 @@ export default async function BillsPage({
         }
       />
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
-        <StatCard
-          title="Total Invoices"
-          value={totalCount}
-          subtitle="All statuses"
-          href="/bills"
-          tint="violet"
-          icon={<Receipt size={20} />}
-        />
-        <StatCard
-          title="Draft"
-          value={draftCount}
-          subtitle="Awaiting approval"
-          href="/bills?status=draft"
-          tint="amber"
-          icon={<Pencil size={20} />}
-        />
-        <StatCard
-          title="Approved"
-          value={approvedCount}
-          subtitle="Ready to post"
-          href="/bills?status=approved"
-          tint="blue"
-          icon={<CheckCircle size={20} />}
-        />
-        <StatCard
-          title="Posted"
-          value={postedCount}
-          subtitle="In the ledger"
-          href="/bills?status=posted"
-          tint="emerald"
-          icon={<BookCheck size={20} />}
-        />
-        <StatCard
-          title="Paid"
-          value={paidCount}
-          subtitle="Settled"
-          href="/bills?status=paid"
-          tint="teal"
-          icon={<Wallet size={20} />}
-        />
-        {overdueCount > 0 && (
-          <StatCard
-            title="Overdue"
-            value={overdueCount}
-            subtitle="Past due date"
-            href="/bills"
-            tint="red"
-            icon={<AlertTriangle size={20} />}
-          />
-        )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard title="Bills to Pay" value={payableCount} subtitle="Supplier bills" href="/bills" tint="violet" icon={<ArrowUpRight size={20} />} />
+        <StatCard title="Owed to Us" value={receivableCount} subtitle="Customer/hirer invoices" href="/bills?tab=owed-to-us" tint="emerald" icon={<ArrowDownLeft size={20} />} />
+        <StatCard title="Payables Outstanding" value={formatMoney(outstandingPayable)} subtitle="Bills not paid" href="/bills?tab=bills-to-pay" tint="amber" icon={<Wallet size={20} />} />
+        <StatCard title="Receivables Outstanding" value={formatMoney(outstandingReceivable)} subtitle="Money owed to church" href="/bills?tab=owed-to-us" tint="blue" icon={<Receipt size={20} />} />
+        <StatCard title="Overdue" value={overdueCount} subtitle={`${draftCount} draft${draftCount === 1 ? '' : 's'}`} href="/bills?tab=overdue" tint="red" icon={<AlertTriangle size={20} />} />
       </div>
 
-      {/* Status filters */}
-      <div className="flex gap-2 flex-wrap">
-        <Button
-          asChild
-          variant={!params.status || params.status === 'all' ? 'default' : 'outline'}
-          size="sm"
-        >
-          <Link href="/bills">All</Link>
-        </Button>
-        {['draft', 'approved', 'posted', 'paid'].map((s) => (
-          <Button
-            key={s}
-            asChild
-            variant={params.status === s ? 'default' : 'outline'}
-            size="sm"
-          >
-            <Link href={`/bills?status=${s}`}>{STATUS_LABELS[s]}</Link>
+      <div className="flex flex-wrap gap-2">
+        {VALID_TABS.map((value) => (
+          <Button key={value} asChild variant={tab === value ? 'default' : 'outline'} size="sm">
+            <Link href={value === 'bills-to-pay' ? '/bills' : `/bills?tab=${value}`}>{TAB_LABELS[value]}</Link>
           </Button>
         ))}
       </div>
 
-      {/* Table */}
-      {allBills.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm overflow-x-auto">
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {items.length > 0 ? (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200/40 bg-white/70 shadow-sm">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Type</TableHead>
+                <TableHead>Counterparty</TableHead>
                 <TableHead>Invoice #</TableHead>
-                <TableHead>Supplier</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead>Payment</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {allBills.map((b) => {
-                const supplierName =
-                  (b.suppliers as { name: string } | null)?.name ?? '—';
-                const isOverdue = b.due_date && b.due_date < today && b.status !== 'paid';
+              {items.map((item) => {
+                const isOverdue = item.dueDate && item.dueDate < today && item.paymentStatus !== 'paid' && item.status !== 'voided';
                 return (
-                  <TableRow key={b.id} className={isOverdue ? 'bg-red-100/55' : ''}>
+                  <TableRow key={`${item.direction}-${item.id}`} className={isOverdue ? 'bg-red-100/55' : ''}>
                     <TableCell>
-                      <Link
-                        href={`/bills/${b.id}`}
-                        className="font-medium text-primary underline-offset-4 hover:underline"
-                      >
-                        {b.bill_number || b.id.slice(0, 8)}
+                      <Badge variant={item.direction === 'payable' ? 'secondary' : 'outline'}>{directionLabel(item)}</Badge>
+                    </TableCell>
+                    <TableCell>{item.counterpartyName}</TableCell>
+                    <TableCell>
+                      <Link href={item.href} className="font-medium text-primary underline-offset-4 hover:underline">
+                        {item.invoiceNumber || item.id.slice(0, 8)}
                       </Link>
                     </TableCell>
-                    <TableCell>{supplierName}</TableCell>
-                    <TableCell>{formatDate(b.bill_date)}</TableCell>
+                    <TableCell>{formatDate(item.invoiceDate)}</TableCell>
                     <TableCell>
                       <span className="flex items-center gap-1">
-                        {b.due_date ? formatDate(b.due_date) : '—'}
-                        {isOverdue && (
-                          <Badge variant="destructive" className="text-[10px] px-1 py-0">
-                            Overdue
-                          </Badge>
-                        )}
+                        {item.dueDate ? formatDate(item.dueDate) : '—'}
+                        {isOverdue && <Badge variant="destructive" className="px-1 py-0 text-[10px]">Overdue</Badge>}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${STATUS_BADGE_COLORS[b.status] ?? ''}`}
-                      >
-                        {STATUS_LABELS[b.status] ?? b.status}
-                      </Badge>
+                      <Badge variant={statusVariant(item.status)} className="text-xs">{statusLabel(item.status)}</Badge>
                     </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatPounds(Number(b.total_pence))}
+                    <TableCell className="text-sm text-muted-foreground">{statusLabel(item.paymentStatus)}</TableCell>
+                    <TableCell className="text-right">
+                      <MoneyAmount amountPence={item.totalPence} semantic={item.direction === 'payable' ? 'expense' : 'income'} size="sm" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={item.href}>View</Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
@@ -226,12 +171,12 @@ export default async function BillsPage({
           </Table>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200/40 bg-slate-100/55 p-8 text-center shadow-sm">
-          <Receipt className="mx-auto h-10 w-10 text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            No invoices found. {canEdit && 'Create one to get started.'}
-          </p>
-        </div>
+        <WorkspaceEmptyState
+          icon={<Receipt className="h-10 w-10" />}
+          title="No invoices yet"
+          description={canEdit ? 'Create a Bill to Pay or an Invoice Owed to Us to get started.' : 'Invoices will appear here once your finance team records them.'}
+          action={canEdit ? <Button asChild><Link href="/bills/new">Create Invoice</Link></Button> : undefined}
+        />
       )}
     </PageShell>
   );

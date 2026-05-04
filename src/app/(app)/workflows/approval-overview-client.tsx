@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import type {
   ApprovalCounts,
   InvoiceSubmissionRow,
+  InvoiceSubmissionStatus,
   ExpenseRequestRow,
   ConversationRow,
 } from '@/lib/workflows/types';
@@ -37,17 +38,24 @@ function formatDate(iso: string): string {
 }
 
 function statusBadgeVariant(
-  status: 'pending' | 'approved' | 'rejected' | 'converted',
+  status: InvoiceSubmissionStatus | ExpenseRequestRow['status'],
 ): 'secondary' | 'default' | 'destructive' | 'outline' {
   switch (status) {
     case 'pending':
+    case 'draft':
+    case 'submitted':
+    case 'change_requested':
       return 'secondary';
-    case 'approved':
-      return 'default';
-    case 'rejected':
-      return 'destructive';
+    case 'under_review':
+    case 'scheduled_for_payment':
     case 'converted':
       return 'outline';
+    case 'approved':
+    case 'paid':
+      return 'default';
+    case 'rejected':
+    case 'voided':
+      return 'destructive';
     default:
       return 'secondary';
   }
@@ -81,7 +89,7 @@ export function ApprovalOverviewClient({
           <CardContent>
             <div className="text-2xl font-bold">{counts.pendingInvoices}</div>
             <Button variant="link" className="h-auto p-0 text-xs" asChild>
-              <Link href="/workflows/invoices?status=pending">View all</Link>
+              <Link href="/workflows/invoices?status=submitted">View all</Link>
             </Button>
           </CardContent>
         </Card>

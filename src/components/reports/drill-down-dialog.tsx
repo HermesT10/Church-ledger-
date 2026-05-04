@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { getDrillDownTransactions } from '@/lib/reports/actions';
 import type { DrillDownTransaction } from '@/lib/reports/actions';
 import {
@@ -30,11 +31,13 @@ function p(pence: number): string {
 
 export interface DrillDownParams {
   organisationId: string;
-  accountId: string;
-  accountName: string;
+  accountId?: string | null;
+  accountName?: string;
   startDate: string;
   endDate: string;
   fundId?: string | null;
+  fundName?: string;
+  title?: string;
 }
 
 interface Props {
@@ -89,10 +92,10 @@ export function DrillDownDialog({ params, onClose }: Props) {
 
   return (
     <Dialog open={!!params} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Transactions: {params?.accountName}
+            {params?.title ?? `Transactions: ${params?.accountName ?? params?.fundName ?? 'Drill-down'}`}
           </DialogTitle>
           {params && (
             <p className="text-sm text-muted-foreground">
@@ -109,7 +112,7 @@ export function DrillDownDialog({ params, onClose }: Props) {
         )}
 
         {!loading && transactions.length === 0 && (
-          <p className="text-sm text-muted-foreground py-4 text-center">
+          <p className="py-8 text-center text-sm text-muted-foreground">
             No transactions found for this period.
           </p>
         )}
@@ -121,9 +124,11 @@ export function DrillDownDialog({ params, onClose }: Props) {
                 <TableRow>
                   <TableHead className="w-24">Date</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Account</TableHead>
                   <TableHead>Fund</TableHead>
-                  <TableHead className="text-right w-28">Debit</TableHead>
-                  <TableHead className="text-right w-28">Credit</TableHead>
+                  <TableHead className="w-28 text-right">Debit</TableHead>
+                  <TableHead className="w-28 text-right">Credit</TableHead>
+                  <TableHead className="w-28 text-right">Source</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -136,6 +141,9 @@ export function DrillDownDialog({ params, onClose }: Props) {
                       {txn.description || txn.memo || '—'}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
+                      {txn.accountName ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
                       {txn.fundName ?? '—'}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
@@ -144,6 +152,11 @@ export function DrillDownDialog({ params, onClose }: Props) {
                     <TableCell className="text-right font-mono text-sm">
                       {txn.creditPence > 0 ? p(txn.creditPence) : ''}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/journals/${txn.journalId}`}>Journal</Link>
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -151,7 +164,7 @@ export function DrillDownDialog({ params, onClose }: Props) {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between px-1 pt-3">
                 <p className="text-xs text-muted-foreground">
                   Page {page} of {totalPages}
                 </p>

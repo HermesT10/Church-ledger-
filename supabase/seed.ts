@@ -1,13 +1,22 @@
 /**
- * Seed script — run with: npx tsx supabase/seed.ts
+ * Dev-only seed script — run with: npx tsx supabase/seed.ts
  *
  * Creates a default organisation ("My Church").
  * Requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
  * to be set in .env.local (loaded automatically by dotenv).
+ *
+ * Refuses unless NODE_ENV=development or ALLOW_SUPABASE_SEED=true (ops escape hatch).
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
+
+if (process.env.NODE_ENV !== 'development' && process.env.ALLOW_SUPABASE_SEED !== 'true') {
+  console.error(
+    'Refusing to run supabase/seed.ts: use NODE_ENV=development or set ALLOW_SUPABASE_SEED=true.'
+  );
+  process.exit(1);
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

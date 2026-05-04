@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { listInvites } from '@/lib/invites/actions';
 import { getOnboardingProgress } from './actions';
 import { SetupWizard } from './setup-client';
 
@@ -25,7 +26,7 @@ export default async function OnboardingSetupPage() {
   // Fetch current org profile
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name')
+    .select('id, name, setup_type')
     .eq('id', orgId)
     .single();
 
@@ -60,16 +61,20 @@ export default async function OnboardingSetupPage() {
     .eq('organisation_id', orgId)
     .eq('year', currentYear);
 
+  const invitesRes = await listInvites(orgId);
+
   return (
     <div className="flex min-h-screen items-start justify-center px-4 py-12">
       <SetupWizard
         orgId={orgId}
         orgName={org?.name ?? ''}
+        initialSetupType={org?.setup_type ?? 'blank'}
         progress={progress}
         existingFunds={funds ?? []}
         accountCount={accountCount ?? 0}
         existingBankAccounts={bankAccounts ?? []}
         existingBudgets={budgets ?? []}
+        existingInvites={invitesRes.data}
         currentYear={currentYear}
       />
     </div>

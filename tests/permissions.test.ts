@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   canPerform,
+  canReviewGiftAid,
+  canExportGiftAid,
   assertCanPerform,
+  assertCanReviewGiftAid,
+  assertCanExportGiftAid,
   PermissionError,
 } from '../src/lib/permissions';
 import type { Role, Action, Module } from '../src/lib/permissions';
@@ -254,6 +258,25 @@ describe('assertCanPerform', () => {
     expect(() => assertCanPerform('treasurer', 'update', 'members')).toThrow(
       PermissionError,
     );
+  });
+});
+
+describe('Gift Aid permission helpers', () => {
+  it('allows finance users to review Gift Aid workflows', () => {
+    expect(canReviewGiftAid('finance_user').allowed).toBe(true);
+    expect(() => assertCanReviewGiftAid('finance_user')).not.toThrow();
+  });
+
+  it('restricts Gift Aid exports to treasurer and admin roles', () => {
+    expect(canExportGiftAid('admin').allowed).toBe(true);
+    expect(canExportGiftAid('treasurer').allowed).toBe(true);
+    expect(canExportGiftAid('finance_user').allowed).toBe(false);
+    expect(() => assertCanExportGiftAid('finance_user')).toThrow(PermissionError);
+  });
+
+  it('denies read-only roles from reviewing Gift Aid workflows', () => {
+    expect(canReviewGiftAid('auditor').allowed).toBe(false);
+    expect(canReviewGiftAid('viewer').allowed).toBe(false);
   });
 });
 

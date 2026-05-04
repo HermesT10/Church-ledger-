@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import { listGivingImports } from '@/lib/giving/actions';
 import { getGivingPlatforms } from '@/lib/giving-platforms/actions';
 import { GivingImportsClient } from './giving-imports-client';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
 
 export default async function GivingImportsPage() {
   const { orgId, role } = await getActiveOrg();
@@ -37,20 +39,16 @@ export default async function GivingImportsPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Giving Imports</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Import donation CSVs from GoCardless, SumUp, or iZettle. Journals are created automatically.
-        </p>
-      </div>
-
+    <PageShell>
+      <PageHeader
+        title="Giving Imports"
+        subtitle="Import donation CSVs from GoCardless, SumUp, or iZettle. Journals are created automatically."
+      />
       <GivingImportsClient
-        orgId={orgId}
         imports={imports}
         activeProviders={activeProviders}
         bankAccounts={bankAccountOptions}
       />
-    </div>
+    </PageShell>
   );
 }

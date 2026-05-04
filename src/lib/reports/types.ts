@@ -1,6 +1,7 @@
 /* Report types (shared, not a server action file) */
 
 import type { BudgetRow, FundRef } from '@/lib/budgets/types';
+import type { CalendarEventView } from '@/lib/calendar/types';
 
 export interface SMonthCell {
   budget: number;
@@ -359,6 +360,66 @@ export interface SCashPositionReport {
   totalDifferencePence: number;
 }
 
+export interface SGiftAidSummaryClaim {
+  claimId: string;
+  reference: string | null;
+  status: 'draft' | 'submitted' | 'paid';
+  claimStart: string;
+  claimEnd: string;
+  totalGiftAidPence: number;
+  totalDonationsPence: number;
+  createdAt: string;
+}
+
+export interface SGiftAidSummaryReport {
+  generatedAt: string;
+  dashboard: {
+    eligibleDonationsCount: number;
+    estimatedReclaimThisYearPence: number;
+    claimedAmountPence: number;
+    unclaimedAmountPence: number;
+    outstandingReclaimPence: number;
+    paidAmountPence: number;
+    missingDeclarationCount: number;
+    donationsExcluded: number;
+    recentBatchCount: number;
+    recentBatchDonationPence: number;
+    recentBatchGiftAidPence: number;
+  };
+  recentClaims: SGiftAidSummaryClaim[];
+}
+
+export interface SBankReconciliationRow {
+  bankAccountId: string;
+  bankAccountName: string;
+  lastStatementDate: string | null;
+  lastReconciliationId: string | null;
+  statementBalancePence: number | null;
+  glBalancePence: number;
+  differencePence: number;
+  unreconciledLines: number;
+  isBalanced: boolean;
+}
+
+export interface SBankReconciliationSummaryReport {
+  asOfDate: string;
+  rows: SBankReconciliationRow[];
+  totals: {
+    statementBalancePence: number;
+    glBalancePence: number;
+    differencePence: number;
+    unreconciledLines: number;
+  };
+}
+
+export interface SLeadershipSnapshotReport {
+  generatedAt: string;
+  plainEnglishSummary: string;
+  recommendedActions: string[];
+  trusteeSnapshot: STrusteeSnapshot;
+  dashboard: DashboardOverview;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Dashboard Overview (new soft-card layout)                          */
 /* ------------------------------------------------------------------ */
@@ -376,9 +437,19 @@ export interface CategoryBreakdown {
 }
 
 export interface TodoItem {
+  id?: string;
+  key: string;
   label: string;
   href: string;
   type: 'warning' | 'info' | 'action';
+  description?: string;
+  dueAt?: string | null;
+  sourceType?: string;
+  sourceId?: string | null;
+  status?: 'active' | 'completed' | 'inactive';
+  completedAt?: string | null;
+  calendarEventId?: string | null;
+  createdAt?: string | null;
 }
 
 export interface DashboardOverview {
@@ -399,6 +470,8 @@ export interface DashboardOverview {
   incomeBreakdown: CategoryBreakdown[];
   expenseBreakdown: CategoryBreakdown[];
   todoItems: TodoItem[];
+  dayCalendarEvents: CalendarEventView[];
+  financialOverview: DashboardFinancialOverview;
 
   /* Optional widget data — only populated when the widget is visible */
   cashPosition?: DashboardCashPosition[];
@@ -458,4 +531,96 @@ export interface DashboardPayrollSummary {
   grossPence: number;
   netPence: number;
   status: string;
+}
+
+export interface DashboardFinancialKpis {
+  totalCashPence: number;
+  restrictedFundsRemainingPence: number;
+  loansOutstandingPence: number;
+  ytdIncomePence: number;
+  ytdExpensePence: number;
+  netPositionPence: number;
+}
+
+export interface DashboardCashPositionRow {
+  id: string;
+  name: string;
+  category: 'current' | 'savings' | 'restricted_savings' | 'cash';
+  categoryLabel: string;
+  balancePence: number;
+  source: 'bank_balance' | 'ledger_balance' | 'opening_balance';
+  lastUpdated: string | null;
+  href: string;
+}
+
+export interface DashboardCommitmentsSummary {
+  restrictedFundsRemainingPence: number;
+  loansOutstandingPence: number;
+  otherLiabilitiesPence: number;
+  totalCommitmentsPence: number;
+}
+
+export type DashboardRestrictedFundStatus =
+  | 'healthy'
+  | 'low_remaining'
+  | 'fully_used'
+  | 'overspent'
+  | 'needs_review';
+
+export interface DashboardRestrictedFundTrackerRow {
+  fundId: string;
+  fundName: string;
+  donatedPence: number;
+  usedPence: number;
+  remainingPence: number;
+  status: DashboardRestrictedFundStatus;
+  href: string;
+}
+
+export interface DashboardMonthlyIncomeExpense {
+  month: string;
+  monthNumber: number;
+  incomePence: number;
+  expensePence: number;
+  netPence: number;
+  incomeHref: string;
+  expenseHref: string;
+}
+
+export interface DashboardYearComparison {
+  currentYear: number;
+  previousYear: number;
+  currentIncomePence: number;
+  currentExpensePence: number;
+  previousIncomePence: number;
+  previousExpensePence: number;
+  incomeVariancePence: number;
+  expenseVariancePence: number;
+  incomeVariancePct: number | null;
+  expenseVariancePct: number | null;
+}
+
+export interface DashboardFinancialAlert {
+  id: string;
+  severity: 'critical' | 'warning' | 'info' | 'success';
+  message: string;
+  recommendedAction: string;
+  href: string;
+}
+
+export interface DashboardFinancialOverview {
+  selectedYear: number;
+  comparePreviousYear: boolean;
+  kpis: DashboardFinancialKpis;
+  cashPosition: DashboardCashPositionRow[];
+  commitments: DashboardCommitmentsSummary;
+  restrictedFundTracker: DashboardRestrictedFundTrackerRow[];
+  monthlyIncomeExpense: DashboardMonthlyIncomeExpense[];
+  previousYearComparison: DashboardYearComparison | null;
+  alerts: DashboardFinancialAlert[];
+  emptyStates: {
+    hasBankAccounts: boolean;
+    hasRestrictedFunds: boolean;
+    hasPostedActivity: boolean;
+  };
 }

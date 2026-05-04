@@ -27,18 +27,27 @@ const STATUS_BADGE_COLORS: Record<JournalStatus, string> = {
   draft: 'bg-amber-100 text-amber-800 border-amber-200',
   approved: 'bg-blue-100 text-blue-800 border-blue-200',
   posted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  reversed: 'bg-slate-100 text-slate-700 border-slate-200',
+  correcting: 'bg-violet-100 text-violet-800 border-violet-200',
+  voided: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
 const STATUS_ICONS: Record<JournalStatus, React.ReactNode> = {
   draft: <Pencil size={18} />,
   approved: <CheckCircle size={18} />,
   posted: <BookCheck size={18} />,
+  reversed: <BookCheck size={18} />,
+  correcting: <Pencil size={18} />,
+  voided: <FileText size={18} />,
 };
 
 const STATUS_TINTS: Record<JournalStatus, string> = {
   draft: 'amber',
   approved: 'blue',
   posted: 'emerald',
+  reversed: 'slate',
+  correcting: 'violet',
+  voided: 'slate',
 };
 
 /* ------------------------------------------------------------------ */
@@ -78,9 +87,10 @@ export default async function JournalsPage({
     status: filterStatus,
   });
 
-  const draftCount = journals.filter((j) => j.status === 'draft').length;
-  const approvedCount = journals.filter((j) => j.status === 'approved').length;
-  const postedCount = journals.filter((j) => j.status === 'posted').length;
+  const statusCounts = new Map<JournalStatus, number>();
+  for (const status of JOURNAL_STATUSES) {
+    statusCounts.set(status, journals.filter((j) => j.status === status).length);
+  }
 
   return (
     <PageShell>
@@ -111,8 +121,8 @@ export default async function JournalsPage({
           icon={<FileText size={20} />}
         />
         {JOURNAL_STATUSES.map((s) => {
-          const count = s === 'draft' ? draftCount : s === 'approved' ? approvedCount : postedCount;
-          const subtitle = s === 'draft' ? 'Awaiting review' : s === 'approved' ? 'Ready to post' : 'In the ledger';
+          const count = statusCounts.get(s) ?? 0;
+          const subtitle = s === 'draft' ? 'Awaiting review' : s === 'approved' ? 'Ready to post' : s === 'posted' ? 'In the ledger' : 'Correction workflow';
           return (
             <StatCard
               key={s}
@@ -166,6 +176,7 @@ export default async function JournalsPage({
                 <TableHead className="text-center">Lines</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created By</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -196,11 +207,18 @@ export default async function JournalsPage({
                       variant="outline"
                       className={`text-xs ${STATUS_BADGE_COLORS[j.status as JournalStatus] ?? ''}`}
                     >
-                      {JOURNAL_STATUS_LABELS[j.status as JournalStatus] ?? j.status}
+                      {j.reversed_by ? 'Reversed' : JOURNAL_STATUS_LABELS[j.status as JournalStatus] ?? j.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {j.created_by_name || '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/journals/${j.id}`}>
+                        {j.status === 'draft' && canEdit ? 'Edit draft' : 'View'}
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

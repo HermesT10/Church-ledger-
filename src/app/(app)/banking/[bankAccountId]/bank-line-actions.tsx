@@ -56,15 +56,16 @@ export function BankLineActions({ line, accounts, funds, suppliers }: Props) {
   const [suggestedSupplierName, setSuggestedSupplierName] = useState<string | null>(null);
   const [allocationSuggestion, setAllocationSuggestion] = useState<AllocationSuggestion | null>(null);
   const [fundWarning, setFundWarning] = useState<FundWarning | null>(null);
+  const transactionDescription = line.display_description || line.description || '';
 
   // Auto-suggest supplier + account/fund when dialog opens
   useEffect(() => {
-    if (!open || !line.description) return;
+    if (!open || !transactionDescription) return;
 
     let cancelled = false;
 
     // Suggest supplier from match rules
-    suggestSupplier(line.description).then((result) => {
+    suggestSupplier(transactionDescription).then((result) => {
       if (cancelled) return;
       if (result.supplierId) {
         setSupplierId(result.supplierId);
@@ -73,18 +74,17 @@ export function BankLineActions({ line, accounts, funds, suppliers }: Props) {
     });
 
     // Suggest account/fund from past allocations
-    suggestAllocation(line.description).then((result) => {
+    suggestAllocation(transactionDescription).then((result) => {
       if (cancelled || !result.data) return;
       setAllocationSuggestion(result.data);
     });
 
     return () => { cancelled = true; };
-  }, [open, line.description]);
+  }, [open, transactionDescription]);
 
   // Check fund warning when fund changes
   useEffect(() => {
     if (!fundId || line.amount_pence >= 0) {
-      setFundWarning(null);
       return;
     }
     let cancelled = false;
@@ -94,6 +94,9 @@ export function BankLineActions({ line, accounts, funds, suppliers }: Props) {
     });
     return () => { cancelled = true; };
   }, [fundId, line.amount_pence]);
+
+  const visibleFundWarning =
+    !fundId || line.amount_pence >= 0 ? null : fundWarning;
 
   async function handleAllocate() {
     if (!accountId || !fundId) {
@@ -190,7 +193,7 @@ export function BankLineActions({ line, accounts, funds, suppliers }: Props) {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Description</span>
-              <span className="truncate max-w-[200px]">{line.description || '—'}</span>
+              <span className="truncate max-w-[200px]">{transactionDescription || '—'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount</span>
@@ -227,10 +230,10 @@ export function BankLineActions({ line, accounts, funds, suppliers }: Props) {
           )}
 
           {/* Fund warning */}
-          {fundWarning?.wouldGoNegative && (
+          {visibleFundWarning?.wouldGoNegative && (
             <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
               <p className="text-amber-800 font-medium">Restricted Fund Warning</p>
-              <p className="text-amber-700 text-xs">{fundWarning.message}</p>
+              <p className="text-amber-700 text-xs">{visibleFundWarning.message}</p>
             </div>
           )}
 

@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { assertWriteAllowed } from '@/lib/demo';
+import { logAuditEvent } from '@/lib/audit';
+import { enforcePortalPermissionForContext } from '@/lib/portal-permissions';
 import type {
   FundRow,
   FundType,
@@ -27,7 +29,9 @@ export async function getFundsWithStats(options?: {
   startDate?: string;
   endDate?: string;
 }): Promise<{ data: FundWithStats[]; error: string | null }> {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'restricted_funds', 'view');
   const supabase = await createClient();
 
   let query = supabase
@@ -124,7 +128,9 @@ export async function getFundsList(options?: {
   type?: FundType;
   activeOnly?: boolean;
 }): Promise<FundRow[]> {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'restricted_funds', 'view');
   const supabase = await createClient();
 
   let query = supabase
@@ -204,7 +210,9 @@ export async function getFundDetailStats(
   startDate: string,
   endDate: string,
 ): Promise<{ data: FundDetailStats | null; error: string | null }> {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'restricted_funds', 'view', { scope: 'assigned_funds', fundId });
   const supabase = await createClient();
 
   // Opening balance: sum of all movements BEFORE startDate
@@ -272,7 +280,9 @@ export async function getFundAccountBreakdown(
   startDate: string,
   endDate: string,
 ): Promise<{ data: FundAccountBreakdown[]; error: string | null }> {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'restricted_funds', 'view', { scope: 'assigned_funds', fundId });
   const supabase = await createClient();
 
   const { data, error } = await supabase.rpc('get_fund_account_breakdown', {
@@ -317,7 +327,9 @@ export async function getFundTransactions(
   page: number = 1,
   pageSize: number = 50,
 ): Promise<{ data: FundTransaction[]; total: number; error: string | null }> {
-  const { orgId } = await getActiveOrg();
+  const ctx = await getActiveOrg();
+  const { orgId } = ctx;
+  await enforcePortalPermissionForContext(ctx, 'restricted_funds', 'view', { scope: 'assigned_funds', fundId });
   const supabase = await createClient();
 
   // Count total
@@ -359,18 +371,64 @@ export async function getFundTransactions(
   return { data: rows, total: typeof total === 'number' ? total : rows.length, error: null };
 }
 
+/**
+ * Canonical running balance from posted journal lines only (see calculate_fund_balance RPC).
+ */
+export async function calculateFundBalance(
+  fundId: string,
+): Promise<{ pence: number; error: string | null }> {
+  const { orgId } = await getActiveOrg();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc('calculate_fund_balance', {
+    p_org_id: orgId,
+    p_fund_id: fundId,
+  });
+
+  if (error) return { pence: 0, error: error.message };
+  return { pence: Number(data ?? 0), error: null };
+}
+
+export async function getFundAuditTrail(fundId: string, limit = 50): Promise<{
+  data: Array<{
+    id: string;
+    action: string;
+    entity_type: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
+  error: string | null;
+}> {
+  const { orgId } = await getActiveOrg();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('audit_log')
+    .select('id, action, entity_type, metadata, created_at')
+    .eq('organisation_id', orgId)
+    .eq('entity_type', 'fund')
+    .eq('entity_id', fundId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  return { data: data ?? [], error: error?.message ?? null };
+}
+
 /* ================================================================== */
 /*  Write operations                                                   */
 /* ================================================================== */
 
 export async function createFund(formData: FormData) {
   await assertWriteAllowed();
-  const { orgId } = await getActiveOrg();
+  const { orgId, user } = await getActiveOrg();
 
   const name = (formData.get('name') as string)?.trim();
   const type = formData.get('type') as string;
   const purposeText = (formData.get('purpose_text') as string)?.trim() || null;
   const reportingGroup = (formData.get('reporting_group') as string)?.trim() || null;
+  const code = (formData.get('code') as string)?.trim() || null;
+  const description = (formData.get('description') as string)?.trim() || null;
+  const restrictionNotes = (formData.get('restriction_notes') as string)?.trim() || null;
 
   if (!name || !type) {
     redirect('/funds/new?error=' + encodeURIComponent('Name and type are required.'));
@@ -378,30 +436,50 @@ export async function createFund(formData: FormData) {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.from('funds').insert({
-    organisation_id: orgId,
-    name,
-    type,
-    purpose_text: purposeText,
-    reporting_group: reportingGroup,
-  });
+  const { data: inserted, error } = await supabase
+    .from('funds')
+    .insert({
+      organisation_id: orgId,
+      name,
+      type,
+      purpose_text: purposeText,
+      reporting_group: reportingGroup,
+      code: code || null,
+      description: description || null,
+      restriction_notes: restrictionNotes || null,
+      created_by: user.id,
+    })
+    .select('id')
+    .single();
 
   if (error) {
     redirect('/funds/new?error=' + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'fund_create',
+    entityType: 'fund',
+    entityId: inserted.id,
+    metadata: { name, type, code },
+  });
 
   redirect('/funds');
 }
 
 export async function updateFund(formData: FormData) {
   await assertWriteAllowed();
-  await getActiveOrg();
+  const { orgId, user } = await getActiveOrg();
 
   const id = formData.get('id') as string;
   const name = (formData.get('name') as string)?.trim();
   const type = formData.get('type') as string;
   const purposeText = (formData.get('purpose_text') as string)?.trim() || null;
   const reportingGroup = (formData.get('reporting_group') as string)?.trim() || null;
+  const code = (formData.get('code') as string)?.trim() || null;
+  const description = (formData.get('description') as string)?.trim() || null;
+  const restrictionNotes = (formData.get('restriction_notes') as string)?.trim() || null;
 
   if (!id || !name || !type) {
     redirect(`/funds/${id}?error=` + encodeURIComponent('Name and type are required.'));
@@ -416,40 +494,68 @@ export async function updateFund(formData: FormData) {
       type,
       purpose_text: purposeText,
       reporting_group: reportingGroup,
+      code: code || null,
+      description: description || null,
+      restriction_notes: restrictionNotes || null,
     })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/funds/${id}?error=` + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'fund_update',
+    entityType: 'fund',
+    entityId: id,
+    metadata: { name, code },
+  });
 
   redirect('/funds');
 }
 
 export async function archiveFund(formData: FormData) {
   await assertWriteAllowed();
-  await getActiveOrg();
+  const { orgId, user } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   if (!id) redirect('/funds');
 
   const supabase = await createClient();
 
+  const now = new Date().toISOString();
   const { error } = await supabase
     .from('funds')
-    .update({ is_active: false })
-    .eq('id', id);
+    .update({
+      is_active: false,
+      is_archived: true,
+      archived_at: now,
+      archived_by: user.id,
+    })
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/funds/${id}?error=` + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'fund_archive',
+    entityType: 'fund',
+    entityId: id,
+  });
 
   redirect('/funds');
 }
 
 export async function unarchiveFund(formData: FormData) {
   await assertWriteAllowed();
-  await getActiveOrg();
+  const { orgId, user } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   if (!id) redirect('/funds');
@@ -458,12 +564,26 @@ export async function unarchiveFund(formData: FormData) {
 
   const { error } = await supabase
     .from('funds')
-    .update({ is_active: true })
-    .eq('id', id);
+    .update({
+      is_active: true,
+      is_archived: false,
+      archived_at: null,
+      archived_by: null,
+    })
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/funds/${id}?error=` + encodeURIComponent(error.message));
   }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'fund_unarchive',
+    entityType: 'fund',
+    entityId: id,
+  });
 
   redirect('/funds');
 }

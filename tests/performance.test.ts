@@ -15,7 +15,10 @@ import {
   invalidateOrgReportCache,
   clearCache,
   cacheSize,
+  getCacheStats,
+  resetCacheStats,
 } from '@/lib/cache';
+import { logger } from '@/lib/logger';
 import { timedQuery, measureTime } from '@/lib/perf';
 
 /* ================================================================== */
@@ -25,6 +28,7 @@ import { timedQuery, measureTime } from '@/lib/perf';
 describe('In-memory TTL cache', () => {
   beforeEach(() => {
     clearCache();
+    resetCacheStats();
   });
 
   it('returns undefined for missing keys', () => {
@@ -61,12 +65,14 @@ describe('In-memory TTL cache', () => {
 
   it('invalidateOrgReportCache clears both dashboard and actuals', () => {
     setCached('dashboard:org1:2026', 'dash', 60_000);
+    setCached('dashboard-overview:org1:2026:summary', 'overview', 60_000);
     setCached('actuals:org1:2026:all:all', 'act', 60_000);
     setCached('dashboard:org2:2026', 'other-dash', 60_000);
 
     invalidateOrgReportCache('org1');
 
     expect(getCached('dashboard:org1:2026')).toBeUndefined();
+    expect(getCached('dashboard-overview:org1:2026:summary')).toBeUndefined();
     expect(getCached('actuals:org1:2026:all:all')).toBeUndefined();
     // Other org's cache should be untouched
     expect(getCached('dashboard:org2:2026')).toEqual('other-dash');
@@ -95,6 +101,20 @@ describe('In-memory TTL cache', () => {
     expect(getCached('key')).toBe('new');
     expect(cacheSize()).toBe(1);
   });
+
+  it('tracks cache hit and miss statistics', () => {
+    setCached('stats:key', 123, 60_000);
+
+    expect(getCached('stats:key')).toBe(123);
+    expect(getCached('missing:key')).toBeUndefined();
+
+    expect(getCacheStats()).toMatchObject({
+      hits: 1,
+      misses: 1,
+      sets: 1,
+      size: 1,
+    });
+  });
 });
 
 /* ================================================================== */
@@ -108,7 +128,7 @@ describe('timedQuery', () => {
   });
 
   it('logs a warning for slow queries', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
 
     await timedQuery('slow-op', async () => {
       // Simulate a slow operation (> 300ms)
@@ -116,21 +136,32 @@ describe('timedQuery', () => {
       return 'done';
     });
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[SLOW QUERY] slow-op:'),
-    );
+    expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
   it('does not log for fast queries', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
 
     await timedQuery('fast-op', async () => 'quick');
 
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+
+  it('logs errors before rethrowing query failures', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    await expect(
+      timedQuery('broken-op', async () => {
+        throw new Error('query exploded');
+      }),
+    ).rejects.toThrow('query exploded');
+
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
 

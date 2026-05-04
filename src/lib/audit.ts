@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getAppEnv } from '@/lib/env';
+import { logServerFailure } from '@/lib/monitoring';
 
 /* ------------------------------------------------------------------ */
 /*  logAuditEvent                                                      */
@@ -36,6 +37,17 @@ export async function logAuditEvent(params: AuditEventParams): Promise<void> {
     });
   } catch (err) {
     // Never let audit logging break the primary action
-    console.error('[AUDIT] Failed to write audit event:', err);
+    await logServerFailure({
+      area: 'audit',
+      event: 'write_failed',
+      error: err,
+      metadata: {
+        action: params.action,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        orgId: params.orgId,
+      },
+      capture: false,
+    });
   }
 }

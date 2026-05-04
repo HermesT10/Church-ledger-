@@ -2,13 +2,11 @@
 
 import { Fragment, useState, useCallback, useTransition, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   ArrowLeftRight,
   CheckCircle2,
-  AlertCircle,
-  Search,
   X,
   Sparkles,
   Link2Off,
@@ -16,7 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { StatCard } from '@/components/stat-card';
+import { ReconciliationCard } from '@/components/finance';
 import {
   Table,
   TableBody,
@@ -32,9 +30,17 @@ import {
   suggestMatches,
   createMatch,
   removeMatch,
+  reconcileBankLineAsDonation,
+  findDonorMatchesForBankTransaction,
 } from '@/lib/reconciliation/actions';
+import type { BankDonationDonorSuggestion } from '@/lib/reconciliation/actions.types';
+import {
+  confirmTransactionMatch,
+  suggestManualMatchesForBankLine,
+} from '@/lib/transactions/actions';
 import type { UnreconciledBankLine, ReconciledBankLine, ReconciliationStats } from '@/lib/reconciliation/types';
 import type { MatchCandidate } from '@/lib/reconciliation/matching';
+import type { MatchSuggestion } from '@/lib/transactions/types';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -42,7 +48,33 @@ import type { MatchCandidate } from '@/lib/reconciliation/matching';
 
 interface Props {
   bankAccounts: { id: string; name: string }[];
+  donors: { id: string; name: string; postcode: string | null }[];
+  declarations: {
+    id: string;
+    donor_id: string;
+    status: string;
+    start_date: string;
+    end_date: string | null;
+    declaration_date: string | null;
+  }[];
+  funds: { id: string; name: string }[];
+  accounts: { id: string; name: string }[];
+  incomeStreams: { id: string; name: string }[];
 }
+
+type DonationFormState = {
+  donorId: string;
+  quickCreate: boolean;
+  quickName: string;
+  quickEmail: string;
+  fundId: string;
+  accountId: string;
+  incomeStreamId: string;
+  giftAidEligible: boolean;
+  declarationId: string;
+  anonymous: boolean;
+  saveBankReferenceAsAlias: boolean;
+};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -70,8 +102,14 @@ function scoreBadge(score: number) {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ReconciliationClient({ bankAccounts }: Props) {
-  const router = useRouter();
+export function ReconciliationClient({
+  bankAccounts,
+  donors,
+  declarations,
+  funds,
+  accounts,
+  incomeStreams,
+}: Props) {
   const searchParams = useSearchParams();
 
   const initialBankId = searchParams.get('bankAccount') ?? bankAccounts[0]?.id ?? '';
@@ -83,7 +121,26 @@ export function ReconciliationClient({ bankAccounts }: Props) {
   const [showReconciled, setShowReconciled] = useState(false);
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<MatchCandidate[]>([]);
+  const [transactionSuggestions, setTransactionSuggestions] = useState<MatchSuggestion[]>([]);
+  const [donorSuggestions, setDonorSuggestions] = useState<BankDonationDonorSuggestion[]>([]);
+  const [donorSuggestionWarning, setDonorSuggestionWarning] = useState<string | null>(null);
+  const [donorSuggestionsLoading, setDonorSuggestionsLoading] = useState(false);
+  const [includeArchivedDonors, setIncludeArchivedDonors] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [donationLineId, setDonationLineId] = useState<string | null>(null);
+  const [donationForm, setDonationForm] = useState<DonationFormState>({
+    donorId: '',
+    quickCreate: false,
+    quickName: '',
+    quickEmail: '',
+    fundId: funds[0]?.id ?? '',
+    accountId: accounts[0]?.id ?? '',
+    incomeStreamId: '',
+    giftAidEligible: true,
+    declarationId: '',
+    anonymous: false,
+    saveBankReferenceAsAlias: true,
+  });
   const [loaded, setLoaded] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -106,6 +163,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
         setLoaded(true);
         setExpandedLineId(null);
         setSuggestions([]);
+        setTransactionSuggestions([]);
       });
     },
     [searchParams]
@@ -134,12 +192,17 @@ export function ReconciliationClient({ bankAccounts }: Props) {
       if (expandedLineId === bankLineId) {
         setExpandedLineId(null);
         setSuggestions([]);
+        setTransactionSuggestions([]);
         return;
       }
       setExpandedLineId(bankLineId);
       setSuggestionsLoading(true);
-      const result = await suggestMatches(bankLineId);
-      setSuggestions(result.data);
+      const [journalResult, transactionResult] = await Promise.all([
+        suggestMatches(bankLineId),
+        suggestManualMatchesForBankLine(bankLineId),
+      ]);
+      setSuggestions(journalResult.data);
+      setTransactionSuggestions(transactionResult.data);
       setSuggestionsLoading(false);
     },
     [expandedLineId]
@@ -159,12 +222,129 @@ export function ReconciliationClient({ bankAccounts }: Props) {
         toast.success('Bank line matched to journal.');
         setExpandedLineId(null);
         setSuggestions([]);
+        setTransactionSuggestions([]);
         loadData(selectedBankId);
       } else {
         toast.error(res.error ?? 'Failed to match.');
       }
     },
     [selectedBankId, loadData]
+  );
+
+  const handleAcceptTransactionMatch = useCallback(
+    async (bankLineId: string, suggestion: MatchSuggestion) => {
+      const res = await confirmTransactionMatch({
+        bankLineId,
+        manualTransactionId: suggestion.manual_transaction_id,
+      });
+
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        toast.success('Bank line matched to manual transaction.');
+        setExpandedLineId(null);
+        setSuggestions([]);
+        setTransactionSuggestions([]);
+        loadData(selectedBankId);
+      }
+    },
+    [selectedBankId, loadData],
+  );
+
+  const resetDonationFormForLine = useCallback(
+    (lineId: string | null) => {
+      setDonationLineId(lineId);
+      setDonorSuggestions([]);
+      setDonorSuggestionWarning(null);
+      setDonationForm({
+        donorId: '',
+        quickCreate: false,
+        quickName: '',
+        quickEmail: '',
+        fundId: funds[0]?.id ?? '',
+        accountId: accounts[0]?.id ?? '',
+        incomeStreamId: '',
+        giftAidEligible: true,
+        declarationId: '',
+        anonymous: false,
+        saveBankReferenceAsAlias: true,
+      });
+      if (lineId) {
+        setDonorSuggestionsLoading(true);
+        findDonorMatchesForBankTransaction(lineId, {
+          includeArchived: includeArchivedDonors,
+        }).then((result) => {
+          if (result.error) {
+            toast.error(result.error);
+          } else {
+            setDonorSuggestions(result.data);
+            setDonorSuggestionWarning(result.warning);
+          }
+          setDonorSuggestionsLoading(false);
+        });
+      }
+    },
+    [accounts, funds, includeArchivedDonors]
+  );
+
+  const selectedDonorDeclarations = declarations.filter(
+    (declaration) => declaration.donor_id === donationForm.donorId
+  );
+
+  const validSelectedDonorDeclarations = selectedDonorDeclarations.filter(
+    (declaration) => declaration.status === 'active'
+  );
+
+  const declarationMissing =
+    !donationForm.anonymous &&
+    donationForm.giftAidEligible &&
+    (donationForm.quickCreate ||
+      (Boolean(donationForm.donorId) &&
+        validSelectedDonorDeclarations.length === 0));
+
+  const handleReconcileAsDonation = useCallback(
+    async (bankLine: UnreconciledBankLine) => {
+      const declarationId =
+        donationForm.declarationId ||
+        validSelectedDonorDeclarations[0]?.id ||
+        null;
+      const res = await reconcileBankLineAsDonation({
+        bankLineId: bankLine.id,
+        donorId: donationForm.anonymous || donationForm.quickCreate ? null : donationForm.donorId,
+        quickCreateDonor: !donationForm.anonymous && donationForm.quickCreate
+          ? {
+              fullName: donationForm.quickName,
+              email: donationForm.quickEmail || null,
+            }
+          : null,
+        anonymous: donationForm.anonymous,
+        saveBankReferenceAsAlias: donationForm.saveBankReferenceAsAlias,
+        fundId: donationForm.fundId,
+        accountId: donationForm.accountId,
+        incomeStreamId: donationForm.incomeStreamId || null,
+        giftAidEligible: donationForm.anonymous ? false : donationForm.giftAidEligible,
+        declarationId: donationForm.anonymous ? null : declarationId,
+      });
+
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+
+      if (res.warning) {
+        toast.warning(res.warning);
+      } else {
+        toast.success('Bank line recorded as a donation.');
+      }
+      setDonationLineId(null);
+      loadData(selectedBankId);
+    },
+    [
+      donationForm,
+      validSelectedDonorDeclarations,
+      selectedBankId,
+      loadData,
+    ]
   );
 
   /* ---- Remove a match ---- */
@@ -239,39 +419,11 @@ export function ReconciliationClient({ bankAccounts }: Props) {
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Total Lines"
-            value={stats.totalLines}
-            subtitle="In selected account"
-            href="/reconciliation"
-            gradient="bg-gradient-to-br from-slate-500 to-slate-700"
-            icon={<ArrowLeftRight size={20} />}
-          />
-          <StatCard
-            title="Reconciled"
-            value={stats.reconciledCount}
-            subtitle="Matched to journals"
-            href="/reconciliation"
-            gradient="bg-gradient-to-br from-emerald-500 to-emerald-700"
-            icon={<CheckCircle2 size={20} />}
-          />
-          <StatCard
-            title="Unreconciled"
-            value={stats.unreconciledCount}
-            subtitle="Needs matching"
-            href="/reconciliation"
-            gradient="bg-gradient-to-br from-amber-500 to-amber-700"
-            icon={<AlertCircle size={20} />}
-          />
-          <StatCard
-            title="Unreconciled Total"
-            value={`£${penceToPounds(stats.unreconciledAmountPence)}`}
-            subtitle="Absolute value"
-            href="/reconciliation"
-            gradient="bg-gradient-to-br from-violet-500 to-violet-700"
-            icon={<Search size={20} />}
-          />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ReconciliationCard title="Total Lines" value={String(stats.totalLines)} helper="In selected account" href="/reconciliation" />
+          <ReconciliationCard title="Reconciled" value={String(stats.reconciledCount)} helper="Matched to journals" href="/reconciliation" />
+          <ReconciliationCard title="Unreconciled" value={String(stats.unreconciledCount)} helper="Needs matching" href="/reconciliation" />
+          <ReconciliationCard title="Unreconciled Total" value={`£${penceToPounds(stats.unreconciledAmountPence)}`} helper="Absolute value" href="/reconciliation" />
         </div>
       )}
 
@@ -339,6 +491,7 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                           £{penceToPounds(bl.amount_pence)}
                         </TableCell>
                         <TableCell>
+                          <div className="flex flex-wrap gap-2">
                           <Button
                             variant="outline"
                             size="sm"
@@ -356,8 +509,362 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                               </>
                             )}
                           </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() =>
+                              resetDonationFormForLine(
+                                donationLineId === bl.id ? null : bl.id
+                              )
+                            }
+                            disabled={bl.amount_pence <= 0}
+                          >
+                            Record donation
+                          </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
+                      {donationLineId === bl.id && (
+                        <TableRow key={`${bl.id}-donation`}>
+                          <TableCell colSpan={5} className="bg-muted/20 px-6 py-4">
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium">Donor</span>
+                                <select
+                                  value={donationForm.donorId}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      donorId: event.target.value,
+                                      quickCreate: false,
+                                      declarationId: '',
+                                    }))
+                                  }
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                  disabled={donationForm.quickCreate || donationForm.anonymous}
+                                >
+                                  <option value="">Select donor</option>
+                                  {donors.map((donor) => (
+                                    <option key={donor.id} value={donor.id}>
+                                      {donor.name}
+                                      {donor.postcode ? ` (${donor.postcode})` : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium">Fund</span>
+                                <select
+                                  value={donationForm.fundId}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      fundId: event.target.value,
+                                    }))
+                                  }
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                  {funds.map((fund) => (
+                                    <option key={fund.id} value={fund.id}>
+                                      {fund.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium">Account</span>
+                                <select
+                                  value={donationForm.accountId}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      accountId: event.target.value,
+                                    }))
+                                  }
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                  {accounts.map((account) => (
+                                    <option key={account.id} value={account.id}>
+                                      {account.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium">Income stream</span>
+                                <select
+                                  value={donationForm.incomeStreamId}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      incomeStreamId: event.target.value,
+                                    }))
+                                  }
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                  <option value="">No income stream</option>
+                                  {incomeStreams.map((stream) => (
+                                    <option key={stream.id} value={stream.id}>
+                                      {stream.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="space-y-1 text-sm">
+                                <span className="font-medium">Declaration</span>
+                                <select
+                                  value={donationForm.declarationId}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      declarationId: event.target.value,
+                                    }))
+                                  }
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                  disabled={
+                                    donationForm.anonymous ||
+                                    donationForm.quickCreate ||
+                                    validSelectedDonorDeclarations.length === 0
+                                  }
+                                >
+                                  <option value="">Use valid declaration if available</option>
+                                  {validSelectedDonorDeclarations.map((declaration) => (
+                                    <option key={declaration.id} value={declaration.id}>
+                                      {formatDate(declaration.start_date)}
+                                      {declaration.end_date
+                                        ? ` to ${formatDate(declaration.end_date)}`
+                                        : ' onwards'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="flex items-center gap-2 pt-6 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={donationForm.giftAidEligible}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      giftAidEligible: event.target.checked,
+                                    }))
+                                  }
+                                  disabled={donationForm.anonymous}
+                                />
+                                Gift Aid eligible
+                              </label>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                              <div className="rounded-lg border bg-background p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-sm font-medium">Suggested donors</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Review the reasons and confirm the donor. Nothing is auto-confirmed.
+                                    </p>
+                                  </div>
+                                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={includeArchivedDonors}
+                                      onChange={(event) => {
+                                        setIncludeArchivedDonors(event.target.checked);
+                                        setDonorSuggestionsLoading(true);
+                                        findDonorMatchesForBankTransaction(bl.id, {
+                                          includeArchived: event.target.checked,
+                                        }).then((result) => {
+                                          if (result.error) toast.error(result.error);
+                                          setDonorSuggestions(result.data);
+                                          setDonorSuggestionWarning(result.warning);
+                                          setDonorSuggestionsLoading(false);
+                                        });
+                                      }}
+                                    />
+                                    Include archived
+                                  </label>
+                                </div>
+                                {donorSuggestionWarning ? (
+                                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                                    {donorSuggestionWarning}
+                                  </div>
+                                ) : null}
+                                {donorSuggestionsLoading ? (
+                                  <p className="mt-3 text-sm text-muted-foreground">
+                                    Finding donor suggestions...
+                                  </p>
+                                ) : donorSuggestions.length === 0 ? (
+                                  <p className="mt-3 text-sm text-muted-foreground">
+                                    No likely donor suggestions found.
+                                  </p>
+                                ) : (
+                                  <div className="mt-3 grid gap-2">
+                                    {donorSuggestions.map((suggestion) => (
+                                      <div
+                                        key={suggestion.donor_id}
+                                        className="rounded-md border bg-muted/20 p-3"
+                                      >
+                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                          <div>
+                                            <p className="text-sm font-medium">
+                                              {suggestion.donor_name}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                              {suggestion.confidence_label} confidence,{' '}
+                                              {Math.round(suggestion.confidence_score * 100)}%
+                                            </p>
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              setDonationForm((current) => ({
+                                                ...current,
+                                                donorId: suggestion.donor_id,
+                                                quickCreate: false,
+                                                anonymous: false,
+                                                declarationId: '',
+                                              }))
+                                            }
+                                          >
+                                            Use this donor
+                                          </Button>
+                                        </div>
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                                          {suggestion.reasons.map((reason) => (
+                                            <li key={reason}>{reason}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={donationForm.anonymous}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      anonymous: event.target.checked,
+                                      donorId: event.target.checked ? '' : current.donorId,
+                                      quickCreate: false,
+                                      declarationId: '',
+                                      giftAidEligible: event.target.checked
+                                        ? false
+                                        : current.giftAidEligible,
+                                      saveBankReferenceAsAlias: event.target.checked
+                                        ? false
+                                        : current.saveBankReferenceAsAlias,
+                                    }))
+                                  }
+                                />
+                                Mark as anonymous donation
+                              </label>
+
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={donationForm.quickCreate}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      quickCreate: event.target.checked,
+                                      donorId: event.target.checked ? '' : current.donorId,
+                                      anonymous: false,
+                                      declarationId: '',
+                                    }))
+                                  }
+                                  disabled={donationForm.anonymous}
+                                />
+                                Donor does not exist: quick create donor
+                              </label>
+
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={donationForm.saveBankReferenceAsAlias}
+                                  onChange={(event) =>
+                                    setDonationForm((current) => ({
+                                      ...current,
+                                      saveBankReferenceAsAlias: event.target.checked,
+                                    }))
+                                  }
+                                  disabled={
+                                    donationForm.anonymous ||
+                                    (!donationForm.donorId && !donationForm.quickCreate)
+                                  }
+                                />
+                                Save bank reference as alias for this donor
+                              </label>
+
+                              {donationForm.quickCreate && (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <input
+                                    value={donationForm.quickName}
+                                    onChange={(event) =>
+                                      setDonationForm((current) => ({
+                                        ...current,
+                                        quickName: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="Donor name"
+                                    className="flex h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                  />
+                                  <input
+                                    value={donationForm.quickEmail}
+                                    onChange={(event) =>
+                                      setDonationForm((current) => ({
+                                        ...current,
+                                        quickEmail: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="Email (optional)"
+                                    className="flex h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                  />
+                                </div>
+                              )}
+
+                              {declarationMissing && (
+                                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                  Gift Aid declaration missing. Add declaration before this donation can be claimed.
+                                </div>
+                              )}
+
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleReconcileAsDonation(bl)}
+                                  disabled={
+                                    isPending ||
+                                    !donationForm.fundId ||
+                                    !donationForm.accountId ||
+                                    (!donationForm.anonymous &&
+                                      !donationForm.donorId &&
+                                      (!donationForm.quickCreate ||
+                                        !donationForm.quickName.trim()))
+                                  }
+                                >
+                                  Save donation
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDonationLineId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
                       {/* Suggestions inline */}
                       {expandedLineId === bl.id && (
                         <TableRow key={`${bl.id}-suggestions`}>
@@ -366,15 +873,52 @@ export function ReconciliationClient({ bankAccounts }: Props) {
                               <p className="text-sm text-muted-foreground">
                                 Searching for matches...
                               </p>
-                            ) : suggestions.length === 0 ? (
+                            ) : suggestions.length === 0 && transactionSuggestions.length === 0 ? (
                               <p className="text-sm text-muted-foreground">
-                                No matching journals found within ±14 days.
+                              No matching journals or manual transactions found within ±14 days.
                               </p>
                             ) : (
                               <div className="space-y-3">
-                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                                  Suggested Matches
-                                </p>
+                                {transactionSuggestions.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                      Suggested Manual Transactions
+                                    </p>
+                                    {transactionSuggestions.map((cand) => (
+                                      <div
+                                        key={cand.manual_transaction_id}
+                                        className="flex items-center justify-between rounded-lg border bg-background p-3 gap-4"
+                                      >
+                                        <div className="flex-1 min-w-0 space-y-1">
+                                          <div className="flex items-center gap-2">
+                                            {scoreBadge(Math.round(cand.confidence_score * 100))}
+                                            <Badge variant="outline" className="text-xs">
+                                              {cand.confidence_label}
+                                            </Badge>
+                                          </div>
+                                          <p className="text-sm truncate">
+                                            {cand.match_reason}
+                                          </p>
+                                          <p className="text-xs text-muted-foreground">
+                                            {formatDate(cand.bank_txn_date)} · £
+                                            {penceToPounds(cand.bank_amount_pence)}
+                                          </p>
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleAcceptTransactionMatch(bl.id, cand)}
+                                        >
+                                          Accept
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </>
+                                )}
+                                {suggestions.length > 0 && (
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                    Suggested Posted Journals
+                                  </p>
+                                )}
                                 {suggestions.map((cand) => (
                                   <div
                                     key={cand.journalId}

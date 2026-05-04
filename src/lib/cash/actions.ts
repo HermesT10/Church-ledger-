@@ -6,8 +6,11 @@ import { getActiveOrg } from '@/lib/org';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { invalidateOrgReportCache } from '@/lib/cache';
+import { enforcePortalPermissionForContext } from '@/lib/portal-permissions';
+import { createPortalNotification } from '@/lib/portal/notifications';
 import { logAuditEvent } from '@/lib/audit';
 import { isDateInLockedPeriod } from '@/lib/periods/actions';
+import { normaliseOptionalUuid, parseRequiredUuid } from '@/lib/validation/uuid';
 import type {
   CashCollectionRow,
   CashCollectionDetail,
@@ -302,6 +305,16 @@ export async function createCashCollection(params: {
   const { orgId, role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'create', 'cash'); }
   catch (e) { return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  try { await enforcePortalPermissionForContext({ orgId, role, user }, 'cash_collections', 'create'); }
+  catch (e) { return { data: null, error: e instanceof Error ? e.message : 'Permission denied.' }; }
+
+  const dateTrim = params.collectedDate?.trim() ?? '';
+  if (!dateTrim) {
+    return { data: null, error: 'Collection date is required.' };
+  }
+  if (!params.counter1Confirmed || !params.counter2Confirmed) {
+    return { data: null, error: 'Both counters must confirm the count before saving.' };
+  }
 
   // Validate lines sum
   const lineSum = params.lines.reduce((s, l) => s + l.amount_pence, 0);
@@ -313,13 +326,56 @@ export async function createCashCollection(params: {
     return { data: null, error: 'At least one line is required.' };
   }
 
+  const normalisedLines: {
+    fund_id: string;
+    income_account_id: string;
+    amount_pence: number;
+    donor_id: string | null;
+    gift_aid_eligible: boolean;
+  }[] = [];
+
+  for (let i = 0; i < params.lines.length; i++) {
+    const l = params.lines[i];
+    const lineLabel = `Line ${i + 1}`;
+    if (l.amount_pence <= 0) {
+      return { data: null, error: `${lineLabel}: amount must be greater than zero.` };
+    }
+
+    const fund = parseRequiredUuid(l.fund_id, `${lineLabel}: fund`);
+    if (!fund.ok) return { data: null, error: fund.error };
+
+    const income = parseRequiredUuid(l.income_account_id, `${lineLabel}: income account`);
+    if (!income.ok) {
+      return { data: null, error: 'Choose an income account for each collection line.' };
+    }
+
+    const donor = normaliseOptionalUuid(l.donor_id, `${lineLabel}: donor`);
+    if (!donor.ok) return { data: null, error: donor.error };
+
+    let giftAid = Boolean(l.gift_aid_eligible);
+    if (giftAid && !donor.uuid) {
+      return {
+        data: null,
+        error: `${lineLabel}: Gift Aid can only be flagged when a donor is selected (not anonymous).`,
+      };
+    }
+
+    normalisedLines.push({
+      fund_id: fund.uuid,
+      income_account_id: income.uuid,
+      amount_pence: l.amount_pence,
+      donor_id: donor.uuid,
+      gift_aid_eligible: giftAid,
+    });
+  }
+
   const supabase = await createClient();
 
   const { data: collection, error: insertErr } = await supabase
     .from('cash_collections')
     .insert({
       organisation_id: orgId,
-      collected_date: params.collectedDate,
+      collected_date: dateTrim,
       service_name: params.serviceName,
       total_amount_pence: params.totalAmountPence,
       counted_by_name_1: params.countedByName1,
@@ -337,13 +393,13 @@ export async function createCashCollection(params: {
   }
 
   // Insert lines
-  const lineRows = params.lines.map((l) => ({
+  const lineRows = normalisedLines.map((l) => ({
     cash_collection_id: collection.id,
     fund_id: l.fund_id,
     income_account_id: l.income_account_id,
     amount_pence: l.amount_pence,
-    donor_id: l.donor_id || null,
-    gift_aid_eligible: l.gift_aid_eligible ?? false,
+    donor_id: l.donor_id,
+    gift_aid_eligible: l.gift_aid_eligible,
   }));
 
   const { error: linesErr } = await supabase
@@ -373,13 +429,15 @@ export async function postCashCollection(
   const { orgId, role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'cash'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  try { await enforcePortalPermissionForContext({ orgId, role, user }, 'cash_collections', 'submit'); }
+  catch (e) { return { success: false, error: e instanceof Error ? e.message : 'Permission denied.' }; }
 
   const supabase = await createClient();
 
   // Fetch collection
   const { data: c } = await supabase
     .from('cash_collections')
-    .select('id, collected_date, service_name, total_amount_pence, status, counter_1_confirmed, counter_2_confirmed, organisation_id')
+    .select('id, collected_date, service_name, total_amount_pence, status, counter_1_confirmed, counter_2_confirmed, organisation_id, created_by')
     .eq('id', collectionId)
     .single();
 
@@ -478,6 +536,16 @@ export async function postCashCollection(
     entityType: 'cash_collection',
     entityId: collectionId,
   });
+  await createPortalNotification({
+    workspaceId: orgId,
+    userId: c.created_by,
+    type: 'cash_collection_reviewed',
+    title: 'Cash collection posted',
+    body: `${c.service_name} has been reviewed and posted.`,
+    sourceType: 'cash_collection',
+    sourceId: collectionId,
+    href: '/portal/cash-collections',
+  });
 
   return { success: true, error: null };
 }
@@ -538,10 +606,18 @@ export async function createCashSpend(params: {
   const { orgId, role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'create', 'cash'); }
   catch (e) { return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
+  try { await enforcePortalPermissionForContext({ orgId, role, user }, 'cash_collections', 'create'); }
+  catch (e) { return { data: null, error: e instanceof Error ? e.message : 'Permission denied.' }; }
 
   if (params.amountPence <= 0) {
     return { data: null, error: 'Amount must be positive.' };
   }
+
+  const fund = parseRequiredUuid(params.fundId, 'Fund');
+  if (!fund.ok) return { data: null, error: fund.error };
+
+  const expense = parseRequiredUuid(params.expenseAccountId, 'Expense account');
+  if (!expense.ok) return { data: null, error: expense.error };
 
   const supabase = await createClient();
 
@@ -553,8 +629,8 @@ export async function createCashSpend(params: {
       paid_to: params.paidTo,
       spent_by: params.spentBy,
       description: params.description,
-      fund_id: params.fundId,
-      expense_account_id: params.expenseAccountId,
+      fund_id: fund.uuid,
+      expense_account_id: expense.uuid,
       amount_pence: params.amountPence,
       receipt_url: params.receiptUrl || null,
       created_by: user.id,
@@ -786,7 +862,7 @@ export async function listCashDeposits(
 
   // Count collections per deposit
   const depositIds = (data ?? []).map((d) => d.id);
-  let collectionCounts: Record<string, number> = {};
+  const collectionCounts: Record<string, number> = {};
   if (depositIds.length > 0) {
     const { data: junctions } = await supabase
       .from('cash_deposit_collections')
@@ -1001,6 +1077,23 @@ export async function postCashDeposit(
       .from('cash_collections')
       .update({ status: 'banked', banked_at: new Date().toISOString() })
       .in('id', collectionIds);
+
+    const { data: submissions } = await admin
+      .from('cash_collection_submissions')
+      .select('id, submitted_by, detail')
+      .eq('workspace_id', orgId)
+      .in('linked_cash_batch_id', collectionIds);
+
+    await Promise.all((submissions ?? []).map((submission) => createPortalNotification({
+      workspaceId: orgId,
+      userId: submission.submitted_by,
+      type: 'cash_collection_banked',
+      title: 'Cash collection banked',
+      body: `${submission.detail} has been included in a bank deposit.`,
+      sourceType: 'cash_collection_submission',
+      sourceId: submission.id,
+      href: '/portal/cash-collections',
+    })));
   }
 
   invalidateOrgReportCache(orgId);

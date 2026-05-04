@@ -3,13 +3,17 @@
  * Used for quick switching between related reports.
  */
 export const REPORT_TABS = [
+  { label: 'Monthly Dashboard', href: '/reports/monthly-dashboard' },
   { label: 'Income Statement', href: '/reports/income-statement' },
   { label: 'Cash Flow', href: '/reports/cash-flow' },
   { label: 'Budget vs Actual', href: '/reports/budget-vs-actual' },
   { label: 'Forecast', href: '/reports/forecast' },
   { label: 'Balance Sheet', href: '/reports/balance-sheet' },
   { label: 'Fund Movements', href: '/reports/fund-movements' },
+  { label: 'Bank Reconciliation', href: '/reports/bank-reconciliation-summary' },
+  { label: 'Gift Aid Summary', href: '/reports/gift-aid-summary' },
   { label: 'Trustee Snapshot', href: '/reports/trustee-snapshot' },
+  { label: 'Leadership Snapshot', href: '/reports/leadership-snapshot' },
   { label: 'Trial Balance', href: '/reports/trial-balance' },
   { label: 'SOFA', href: '/reports/sofa' },
   { label: 'Cash Position', href: '/reports/cash-position' },

@@ -4,6 +4,8 @@
  * Wraps async operations with timing and logs slow queries.
  */
 
+import { logger, serializeError } from '@/lib/logger';
+
 const SLOW_QUERY_THRESHOLD_MS = 300;
 
 /**
@@ -18,16 +20,34 @@ export async function timedQuery<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const start = performance.now();
-  const result = await fn();
-  const elapsed = performance.now() - start;
+  try {
+    const result = await fn();
+    const elapsed = performance.now() - start;
 
-  if (elapsed > SLOW_QUERY_THRESHOLD_MS) {
-    console.warn(
-      `[SLOW QUERY] ${label}: ${elapsed.toFixed(0)}ms (threshold: ${SLOW_QUERY_THRESHOLD_MS}ms)`,
+    if (elapsed > SLOW_QUERY_THRESHOLD_MS) {
+      logger.warn(
+        {
+          label,
+          elapsedMs: Number(elapsed.toFixed(0)),
+          thresholdMs: SLOW_QUERY_THRESHOLD_MS,
+        },
+        'Slow query detected',
+      );
+    }
+
+    return result;
+  } catch (error) {
+    const elapsed = performance.now() - start;
+    logger.error(
+      {
+        label,
+        elapsedMs: Number(elapsed.toFixed(0)),
+        error: serializeError(error),
+      },
+      'Query failed',
     );
+    throw error;
   }
-
-  return result;
 }
 
 /**

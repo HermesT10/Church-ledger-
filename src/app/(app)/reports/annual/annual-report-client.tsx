@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { getAnnualReport } from '@/lib/reports/actions';
 import { ReportShell } from '@/components/reports/report-shell';
 import type { SAnnualReport } from '@/lib/reports/types';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 
 function p(pence: number): string {
@@ -94,6 +96,10 @@ export function AnnualReportClient({ initialData, orgId, role, defaultYear, erro
           </SelectContent>
         </Select>
         {loading && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
+
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/reports/annual/accounts-builder?year=${year}`}>Open accounts builder</Link>
+        </Button>
 
         <button
           className="ml-auto text-sm text-primary hover:underline print:hidden"

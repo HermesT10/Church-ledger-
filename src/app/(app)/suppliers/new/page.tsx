@@ -20,6 +20,7 @@ export default async function NewSupplierPage() {
       .select('id, name, type')
       .eq('organisation_id', orgId)
       .eq('is_active', true)
+      .eq('available_in_invoices', true)
       .in('type', ['expense'])
       .order('name'),
     supabase

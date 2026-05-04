@@ -1,5 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { getAppEnv, getSupabaseBrowserEnv, isProduction } from '@/lib/env';
+import {
+  DEMO_MODE_HEADER,
+  PATHNAME_HEADER,
+  REQUEST_ID_HEADER,
+} from '@/lib/request-context';
 
 /* ------------------------------------------------------------------ */
 /*  Demo mode detection (env + query params)                           */
@@ -18,17 +24,28 @@ function isDemoRequest(request: NextRequest): boolean {
 /* ------------------------------------------------------------------ */
 
 export async function proxy(request: NextRequest) {
+  const requestId = request.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
   const demoMode = isDemoRequest(request);
+  const supabaseEnv = getSupabaseBrowserEnv();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(REQUEST_ID_HEADER, requestId);
+  requestHeaders.set(PATHNAME_HEADER, request.nextUrl.pathname);
+  requestHeaders.set('x-app-env', getAppEnv());
+  if (demoMode) {
+    requestHeaders.set(DEMO_MODE_HEADER, 'true');
+  }
 
   let response = NextResponse.next({
     request: {
-      headers: request.headers,
+      headers: requestHeaders,
     },
   });
 
+  response.headers.set(REQUEST_ID_HEADER, requestId);
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseEnv.url,
+    supabaseEnv.anonKey,
     {
       cookies: {
         getAll() {
@@ -40,7 +57,7 @@ export async function proxy(request: NextRequest) {
           );
           response = NextResponse.next({
             request: {
-              headers: request.headers,
+              headers: requestHeaders,
             },
           });
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -57,7 +74,15 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Public routes that don't require authentication
-  const publicRoutes = ['/', '/login', '/signup', '/auth/callback', '/api/health'];
+  const publicRoutes = [
+    '/',
+    '/login',
+    '/signup',
+    '/forgot-password',
+    '/reset-password',
+    '/auth/callback',
+    '/api/health',
+  ];
   const isPublic = publicRoutes.some(
     (route) =>
       request.nextUrl.pathname === route ||
@@ -70,18 +95,41 @@ export async function proxy(request: NextRequest) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
     loginUrl.searchParams.set('redirectTo', request.nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    applyOperationalHeaders(redirectResponse, requestId);
+    return redirectResponse;
   }
 
-  // Forward the pathname so server components can read it via headers()
-  response.headers.set('x-pathname', request.nextUrl.pathname);
+  // Forward the pathname and request ID so server components can read them via headers()
+  response.headers.set(PATHNAME_HEADER, request.nextUrl.pathname);
+  response.headers.set('x-app-env', getAppEnv());
 
   // Signal demo mode to downstream server components and actions
   if (demoMode) {
-    response.headers.set('x-demo-mode', 'true');
+    response.headers.set(DEMO_MODE_HEADER, 'true');
   }
 
+  applyOperationalHeaders(response, requestId);
+
   return response;
+}
+
+function applyOperationalHeaders(response: NextResponse, requestId: string) {
+  response.headers.set(REQUEST_ID_HEADER, requestId);
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set(
+    'Permissions-Policy',
+    'camera=(), geolocation=(), microphone=()',
+  );
+
+  if (isProduction()) {
+    response.headers.set(
+      'Strict-Transport-Security',
+      'max-age=31536000; includeSubDomains; preload',
+    );
+  }
 }
 
 export const config = {

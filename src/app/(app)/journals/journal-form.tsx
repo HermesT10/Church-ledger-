@@ -1,15 +1,16 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useState, useCallback, useMemo } from 'react';
+import { Suspense, useState, useCallback, useMemo, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import {
   createJournal,
   updateJournal,
   approveJournal,
-  postJournal,
   deleteJournal,
+  updateJournalAttachment,
 } from './actions';
+import { uploadFinancialEvidence } from '@/lib/evidence/actions';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -22,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -44,6 +46,7 @@ interface JournalHeader {
   reference: string | null;
   memo: string | null;
   status: string;
+  attachment_url?: string | null;
 }
 
 interface Supplier {
@@ -78,6 +81,8 @@ export interface JournalFormProps {
   journal?: JournalHeader;
   lines?: JournalLine[];
   canEdit: boolean;
+  /** Mirrors organisation_settings.require_fund_on_journal_lines (default true when omitted). */
+  requireFundOnJournalLines?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -120,7 +125,7 @@ interface LineWarning {
   message: string;
 }
 
-function getLineWarnings(lines: LineDraft[]): LineWarning[] {
+function getLineWarnings(lines: LineDraft[], requireFundOnLines: boolean): LineWarning[] {
   const warnings: LineWarning[] = [];
 
   for (const l of lines) {
@@ -135,7 +140,7 @@ function getLineWarnings(lines: LineDraft[]): LineWarning[] {
       warnings.push({ key: l.key, message: 'Account is required.' });
     }
 
-    if ((d > 0 || c > 0) && !l.fund_id) {
+    if (requireFundOnLines && (d > 0 || c > 0) && !l.fund_id) {
       warnings.push({ key: l.key, message: 'Fund is required.' });
     }
   }
@@ -147,12 +152,23 @@ function getLineWarnings(lines: LineDraft[]): LineWarning[] {
 /*  Inner form                                                         */
 /* ------------------------------------------------------------------ */
 
-function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }: JournalFormProps) {
+function InnerForm({
+  accounts,
+  funds,
+  suppliers = [],
+  journal,
+  lines,
+  canEdit,
+  requireFundOnJournalLines = true,
+}: JournalFormProps) {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
   const isEdit = !!journal;
   const isDraft = !journal || journal.status === 'draft';
+  const canManageEvidence = canEdit && (!journal || journal.status !== 'posted');
+
+  const fundValidationActive = requireFundOnJournalLines && canEdit && isDraft;
 
   const [lineDrafts, setLineDrafts] = useState<LineDraft[]>(() => {
     if (lines && lines.length > 0) {
@@ -168,6 +184,8 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
     }
     return [emptyLine(), emptyLine()];
   });
+  const [attachmentUrl, setAttachmentUrl] = useState(journal?.attachment_url ?? '');
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   const addLine = useCallback(() => {
     setLineDrafts((prev) => [...prev, emptyLine()]);
@@ -201,10 +219,10 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
       c += lc;
       if (ld === 0 && lc === 0) hasZeroLine = true;
       if (!l.account_id && (ld > 0 || lc > 0)) hasMissingAccount = true;
-      if (!l.fund_id && (ld > 0 || lc > 0)) hasMissingFund = true;
+      if (fundValidationActive && !l.fund_id && (ld > 0 || lc > 0)) hasMissingFund = true;
     }
 
-    const warnings = getLineWarnings(lineDrafts);
+    const warnings = getLineWarnings(lineDrafts, fundValidationActive);
     const balanced = d === c && d > 0 && lineDrafts.length >= 2;
     const diff = Math.abs(d - c);
 
@@ -223,7 +241,7 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
       lineWarnings: warnings,
       canSave: saveable,
     };
-  }, [lineDrafts]);
+  }, [lineDrafts, fundValidationActive]);
 
   // Serialise lines as JSON for the hidden input
   const linesJson = JSON.stringify(
@@ -238,6 +256,34 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
   );
 
   const formAction = isEdit ? updateJournal : createJournal;
+
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('entityType', 'journals');
+    const uploadRes = await uploadFinancialEvidence(formData);
+    setUploadingFile(false);
+
+    if (uploadRes.error || !uploadRes.url) {
+      toast.error(uploadRes.error ?? 'Upload failed.');
+      return;
+    }
+
+    if (journal?.id && !isDraft) {
+      const saveRes = await updateJournalAttachment(journal.id, uploadRes.url);
+      if (saveRes.error) {
+        toast.error(saveRes.error);
+        return;
+      }
+    }
+
+    setAttachmentUrl(uploadRes.url);
+    toast.success('Journal evidence attached.');
+  };
 
   // Map warnings by line key for inline display
   const warningsByKey = new Map<string, string[]>();
@@ -286,6 +332,7 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
         <form className="flex flex-col gap-6">
           {isEdit && <input type="hidden" name="id" value={journal!.id} />}
           <input type="hidden" name="lines" value={linesJson} />
+          <input type="hidden" name="attachment_url" value={attachmentUrl} />
 
           {/* Header fields */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -326,6 +373,30 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
             </div>
           </div>
 
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="journal_attachment">Evidence / working paper</Label>
+            <input
+              id="journal_attachment"
+              type="file"
+              onChange={handleFileUpload}
+              disabled={!canManageEvidence || uploadingFile}
+              className="text-sm"
+            />
+            {attachmentUrl ? (
+              <Link
+                href={attachmentUrl}
+                target="_blank"
+                className="text-sm text-blue-600 underline hover:no-underline"
+              >
+                View attached journal evidence
+              </Link>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Attach a schedule, approval note, or other supporting evidence.
+              </span>
+            )}
+          </div>
+
           {/* Line editor */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -345,7 +416,12 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
                 Account <span className="text-destructive">*</span>
               </span>
               <span>
-                Fund <span className="text-destructive">*</span>
+                Fund{' '}
+                {fundValidationActive ? (
+                  <span className="text-destructive">*</span>
+                ) : (
+                  <span className="font-normal text-muted-foreground">(optional)</span>
+                )}
               </span>
               <span>Supplier</span>
               <span>Description</span>
@@ -392,7 +468,7 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
                       value={line.fund_id}
                       onChange={(e) => updateLine(line.key, 'fund_id', e.target.value)}
                       disabled={!canEdit || !isDraft}
-                      required
+                      required={fundValidationActive}
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">Select fund…</option>
@@ -529,9 +605,6 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
                   <Button formAction={approveJournal} variant="secondary" disabled={!canSave}>
                     Approve
                   </Button>
-                  <Button formAction={postJournal} variant="secondary" disabled={!canSave}>
-                    Post
-                  </Button>
                   <Button formAction={deleteJournal} variant="outline">
                     Delete
                   </Button>
@@ -562,11 +635,12 @@ function InnerForm({ accounts, funds, suppliers = [], journal, lines, canEdit }:
                   const lc = parsePounds(l.credit);
                   return (ld > 0 || lc > 0) && !l.account_id;
                 }) && <li>Every line with an amount needs an account</li>}
-                {lineDrafts.some((l) => {
-                  const ld = parsePounds(l.debit);
-                  const lc = parsePounds(l.credit);
-                  return (ld > 0 || lc > 0) && !l.fund_id;
-                }) && <li>Every line with an amount needs a fund</li>}
+                {fundValidationActive &&
+                  lineDrafts.some((l) => {
+                    const ld = parsePounds(l.debit);
+                    const lc = parsePounds(l.credit);
+                    return (ld > 0 || lc > 0) && !l.fund_id;
+                  }) && <li>Every line with an amount needs a fund</li>}
                 {lineWarnings.length > 0 && <li>Fix line-level warnings above</li>}
               </ul>
             </div>

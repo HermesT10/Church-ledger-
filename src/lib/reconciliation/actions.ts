@@ -1,9 +1,12 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getActiveOrg } from '@/lib/org';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { invalidateOrgReportCache } from '@/lib/cache';
+import { logAuditEvent } from '@/lib/audit';
+import { isDateInLockedPeriod } from '@/lib/periods/actions';
 import {
   buildMatchCandidate,
   rankCandidates,
@@ -16,6 +19,23 @@ import {
   type ProviderClearingMap,
 } from './clearingReport';
 import { assertWriteAllowed } from '@/lib/demo';
+import { logServerFailure } from '@/lib/monitoring';
+import { validateBankLedgerLink } from '@/lib/banking/ledger-link';
+import {
+  assessDonationGiftAidForReconciliation,
+  GIFT_AID_DECLARATION_MISSING_ALERT,
+} from '@/lib/giftaid/donation-reconciliation';
+import {
+  DEFAULT_DECLARATION_LINK_EXPIRY_DAYS,
+  buildDeclarationLinkExpiry,
+  generateDeclarationLinkToken,
+  hashDeclarationLinkToken,
+} from '@/lib/giftaid/self-service-declarations';
+import {
+  normalizeDonorMatchAlias,
+  scoreDonorMatchesForBankTransaction,
+  type BankDonorMatchRecurringHint,
+} from '@/lib/giftaid/bank-donor-matching';
 import type {
   UnreconciledBankLine,
   ReconciledBankLine,
@@ -26,6 +46,131 @@ import type {
   ReconciliationSummary,
   GLReconciliationData,
 } from './types';
+import type { BankDonationDonorSuggestion } from './actions.types';
+
+type ReconcileDonationQuickCreateDonor = {
+  fullName: string;
+  title?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  houseNameOrNumber?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  townCity?: string | null;
+  postcode?: string | null;
+  email?: string | null;
+};
+
+function buildDeclarationUrl(token: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+  return `${baseUrl.replace(/\/$/, '')}/gift-aid/declaration/${token}`;
+}
+
+async function upsertGiftAidDeclarationRequest(params: {
+  admin: ReturnType<typeof createAdminClient>;
+  orgId: string;
+  donorId: string;
+  donationId: string;
+  userId: string;
+}) {
+  const { data: existing } = await params.admin
+    .from('gift_aid_declaration_requests')
+    .select('id')
+    .eq('workspace_id', params.orgId)
+    .eq('donor_id', params.donorId)
+    .in('status', ['needed', 'link_generated', 'sent'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing?.id) {
+    await params.admin
+      .from('gift_aid_declaration_requests')
+      .update({ donation_id: params.donationId })
+      .eq('id', existing.id)
+      .eq('workspace_id', params.orgId);
+    return existing.id as string;
+  }
+
+  const { data: request } = await params.admin
+    .from('gift_aid_declaration_requests')
+    .insert({
+      workspace_id: params.orgId,
+      donor_id: params.donorId,
+      donation_id: params.donationId,
+      status: 'needed',
+      request_reason: 'missing_declaration',
+      created_by: params.userId,
+    })
+    .select('id')
+    .maybeSingle();
+
+  return (request?.id as string | null | undefined) ?? null;
+}
+
+async function generateGiftAidDeclarationLinkForRequest(params: {
+  admin: ReturnType<typeof createAdminClient>;
+  orgId: string;
+  donorId: string;
+  donationId: string;
+  requestId: string | null;
+  donorEmail: string | null;
+  userId: string;
+}) {
+  if (!params.donorEmail) {
+    return {
+      declarationLinkUrl: null,
+      warning: 'Gift Aid follow-up was added, but no declaration link was generated because the donor has no email address.',
+    };
+  }
+
+  const token = generateDeclarationLinkToken();
+  const expiresAt = buildDeclarationLinkExpiry(DEFAULT_DECLARATION_LINK_EXPIRY_DAYS);
+  const { data: link } = await params.admin
+    .from('gift_aid_declaration_links')
+    .insert({
+      workspace_id: params.orgId,
+      donor_id: params.donorId,
+      declaration_id: null,
+      token_hash: hashDeclarationLinkToken(token),
+      status: 'active',
+      expires_at: expiresAt.toISOString(),
+      created_by: params.userId,
+    })
+    .select('id')
+    .single();
+
+  if (!link) {
+    return { declarationLinkUrl: null, warning: 'Gift Aid follow-up was added, but the declaration link could not be generated.' };
+  }
+
+  if (params.requestId) {
+    await params.admin
+      .from('gift_aid_declaration_requests')
+      .update({
+        declaration_link_id: link.id,
+        status: 'link_generated',
+      })
+      .eq('id', params.requestId)
+      .eq('workspace_id', params.orgId);
+  }
+
+  await logAuditEvent({
+    orgId: params.orgId,
+    userId: params.userId,
+    action: 'gift_aid_declaration_link_generated',
+    entityType: 'gift_aid_declaration_link',
+    entityId: link.id,
+    metadata: { donorId: params.donorId, donationId: params.donationId, source: 'bank_reconciliation' },
+  });
+
+  return { declarationLinkUrl: buildDeclarationUrl(token), warning: null };
+}
+
+function optionalText(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
 
 /* ------------------------------------------------------------------ */
 /*  getUnreconciledBankLines                                           */
@@ -49,8 +194,12 @@ export async function getUnreconciledBankLines(
   // Fetch all bank lines for this account
   let query = supabase
     .from('bank_lines')
-    .select('id, txn_date, description, reference, amount_pence, balance_pence')
+    .select('id, txn_date, description, reference, amount_pence, balance_pence, status, reconciled, allocated, posted_journal_id')
     .eq('bank_account_id', bankAccountId)
+    .eq('reconciled', false)
+    .eq('allocated', false)
+    .is('posted_journal_id', null)
+    .not('status', 'in', '("excluded","duplicate","matched","reconciled")')
     .order('txn_date', { ascending: false });
 
   if (dateFrom) query = query.gte('txn_date', dateFrom);
@@ -116,7 +265,7 @@ export async function getReconciledBankLines(
 
   // Fetch journal info for matched journals
   const journalIds = (matches ?? []).map((m) => m.journal_id);
-  let journalMap = new Map<string, { memo: string | null; journal_date: string }>();
+  const journalMap = new Map<string, { memo: string | null; journal_date: string }>();
   if (journalIds.length > 0) {
     const { data: journals } = await supabase
       .from('journals')
@@ -276,15 +425,18 @@ export async function createMatch(params: {
 
   const supabase = await createClient();
 
-  // Validate bank line belongs to org
+  // Validate bank line belongs to org and has not already created final GL.
   const { data: bl } = await supabase
     .from('bank_lines')
-    .select('organisation_id')
+    .select('organisation_id, allocated, reconciled')
     .eq('id', bankLineId)
     .single();
 
   if (!bl || bl.organisation_id !== orgId) {
     return { success: false, error: 'Bank line not found or does not belong to this organisation.' };
+  }
+  if (bl.allocated || bl.reconciled) {
+    return { success: false, error: 'This bank line is already allocated or reconciled.' };
   }
 
   // Validate journal belongs to org
@@ -314,6 +466,12 @@ export async function createMatch(params: {
     if (insertErr.message.includes('unique') || insertErr.message.includes('duplicate')) {
       return { success: false, error: 'This bank line is already matched.' };
     }
+    await logServerFailure({
+      area: 'reconciliation',
+      event: 'create_match_failed',
+      error: insertErr,
+      metadata: { bankLineId, journalId, orgId, userId: user.id },
+    });
     return { success: false, error: insertErr.message };
   }
 
@@ -330,6 +488,746 @@ export async function createMatch(params: {
 }
 
 /* ------------------------------------------------------------------ */
+/*  reconcileBankLineAsDonation                                        */
+/* ------------------------------------------------------------------ */
+
+export async function findDonorMatchesForBankTransaction(
+  bankTransactionId: string,
+  options?: { includeArchived?: boolean }
+): Promise<{
+  data: BankDonationDonorSuggestion[];
+  warning: string | null;
+  error: string | null;
+}> {
+  const { orgId, role } = await getActiveOrg();
+  try {
+    assertCanPerform(role, 'read', 'reconciliation');
+  } catch (e) {
+    return {
+      data: [],
+      warning: null,
+      error: e instanceof PermissionError ? e.message : 'Permission denied.',
+    };
+  }
+
+  const supabase = await createClient();
+  const { data: bankLine, error: bankLineError } = await supabase
+    .from('bank_lines')
+    .select('id, organisation_id, reference, description, amount_pence')
+    .eq('id', bankTransactionId)
+    .eq('organisation_id', orgId)
+    .maybeSingle();
+
+  if (bankLineError || !bankLine) {
+    return {
+      data: [],
+      warning: null,
+      error: bankLineError?.message ?? 'Bank transaction not found.',
+    };
+  }
+
+  const referenceText = [bankLine.reference, bankLine.description]
+    .filter(Boolean)
+    .join(' ');
+  const normalizedReference = normalizeDonorMatchAlias(referenceText);
+
+  const [
+    { data: donors, error: donorError },
+    { data: aliases, error: aliasError },
+    { data: historicalMatches, error: matchError },
+    { data: historicalDonations, error: donationError },
+    { data: recurringPatternRows, error: recurringPatternError },
+  ] = await Promise.all([
+    supabase
+      .from('donors')
+      .select('id, full_name, first_name, last_name, display_name, reference_code, donor_reference_code, is_active')
+      .eq('organisation_id', orgId)
+      .order('full_name'),
+    supabase
+      .from('donor_matching_aliases')
+      .select('donor_id, alias_text, normalized_alias, source, confidence')
+      .eq('workspace_id', orgId),
+    normalizedReference
+      ? supabase
+          .from('bank_transaction_donor_matches')
+          .select('donor_id, confidence_score, review_status, bank_lines!inner(reference, description)')
+          .eq('workspace_id', orgId)
+          .eq('review_status', 'confirmed')
+          .or(
+            `reference.ilike.%${referenceText.replace(/[%_,]/g, '')}%,description.ilike.%${referenceText.replace(/[%_,]/g, '')}%`,
+            { foreignTable: 'bank_lines' }
+          )
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('donations')
+      .select('donor_id, amount_pence, provider_reference')
+      .eq('organisation_id', orgId)
+      .eq('status', 'posted')
+      .not('donor_id', 'is', null)
+      .limit(500),
+    supabase
+      .from('recurring_donor_patterns')
+      .select('donor_id, expected_amount_pence, amount_tolerance_pence, normalized_bank_reference')
+      .eq('workspace_id', orgId)
+      .eq('status', 'active'),
+  ]);
+
+  if (donorError) return { data: [], warning: null, error: donorError.message };
+  if (aliasError) return { data: [], warning: null, error: aliasError.message };
+  if (matchError) return { data: [], warning: null, error: matchError.message };
+  if (donationError) return { data: [], warning: null, error: donationError.message };
+  if (recurringPatternError) {
+    return { data: [], warning: null, error: recurringPatternError.message };
+  }
+
+  const recurringPatterns: BankDonorMatchRecurringHint[] = (recurringPatternRows ?? []).map((row) => ({
+    donor_id: row.donor_id as string,
+    expected_amount_pence: Number(row.expected_amount_pence),
+    amount_tolerance_pence: Number(row.amount_tolerance_pence ?? 50),
+    normalized_bank_reference: row.normalized_bank_reference as string | null,
+  }));
+
+  const scored = scoreDonorMatchesForBankTransaction({
+    bankTransaction: {
+      id: bankLine.id,
+      workspace_id: bankLine.organisation_id,
+      reference: bankLine.reference,
+      description: bankLine.description,
+      amount_pence: Number(bankLine.amount_pence),
+    },
+    donors: (donors ?? []).map((donor) => ({
+      id: donor.id,
+      full_name: donor.full_name,
+      first_name: donor.first_name ?? null,
+      last_name: donor.last_name ?? null,
+      display_name: donor.display_name ?? null,
+      reference_code: donor.reference_code ?? null,
+      donor_reference_code: donor.donor_reference_code ?? null,
+      is_active: Boolean(donor.is_active),
+    })),
+    aliases: (aliases ?? []).map((alias) => ({
+      donor_id: alias.donor_id,
+      alias_text: alias.alias_text,
+      normalized_alias: alias.normalized_alias,
+      source: alias.source,
+      confidence: Number(alias.confidence ?? 0.8),
+    })),
+    historicalMatches: (historicalMatches ?? []).map((match) => ({
+      donor_id: match.donor_id,
+      confidence_score:
+        match.confidence_score == null ? null : Number(match.confidence_score),
+      review_status: match.review_status,
+    })),
+    historicalDonations: (historicalDonations ?? []).map((donation) => ({
+      donor_id: donation.donor_id,
+      amount_pence: Number(donation.amount_pence),
+      provider_reference: donation.provider_reference ?? null,
+    })),
+    recurringPatterns,
+    includeArchived: options?.includeArchived ?? false,
+  });
+
+  return { data: scored.candidates, warning: scored.warning, error: null };
+}
+
+export async function reconcileBankLineAsDonation(params: {
+  bankLineId: string;
+  donorId?: string | null;
+  quickCreateDonor?: ReconcileDonationQuickCreateDonor | null;
+  anonymous?: boolean;
+  saveBankReferenceAsAlias?: boolean;
+  fundId: string;
+  accountId: string;
+  incomeStreamId?: string | null;
+  giftAidEligible: boolean;
+  declarationId?: string | null;
+  addGiftAidFollowUp?: boolean;
+  generateGiftAidDeclarationLink?: boolean;
+}): Promise<{
+  success: boolean;
+  donationId: string | null;
+  donorId: string | null;
+  giftAidStatus: string | null;
+  declarationRequestId?: string | null;
+  declarationLinkUrl?: string | null;
+  warning: string | null;
+  error: string | null;
+}> {
+  await assertWriteAllowed();
+  const { user, role, orgId } = await getActiveOrg();
+
+  try {
+    assertCanPerform(role, 'create', 'reconciliation');
+    assertCanPerform(role, 'create', 'donations');
+  } catch (e) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: e instanceof PermissionError ? e.message : 'Permission denied.',
+    };
+  }
+
+  if (
+    !params.anonymous &&
+    !params.donorId &&
+    !optionalText(params.quickCreateDonor?.fullName)
+  ) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'Select a donor, quick-create one, or mark the donation as anonymous before recording it.',
+    };
+  }
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  const [
+    { data: bankLine, error: bankLineError },
+    { data: account },
+    { data: fund },
+    { data: existingBankMatch },
+    { data: existingTransactionMatch },
+  ] = await Promise.all([
+    supabase
+      .from('bank_lines')
+      .select(
+        'id, organisation_id, bank_account_id, txn_date, description, reference, amount_pence, allocated, reconciled, bank_accounts(linked_account_id, name)'
+      )
+      .eq('id', params.bankLineId)
+      .eq('organisation_id', orgId)
+      .maybeSingle(),
+    supabase
+      .from('accounts')
+      .select('id, type, is_active')
+      .eq('id', params.accountId)
+      .eq('organisation_id', orgId)
+      .maybeSingle(),
+    supabase
+      .from('funds')
+      .select('id, is_active')
+      .eq('id', params.fundId)
+      .eq('organisation_id', orgId)
+      .maybeSingle(),
+    supabase
+      .from('bank_reconciliation_matches')
+      .select('id')
+      .eq('bank_line_id', params.bankLineId)
+      .maybeSingle(),
+    supabase
+      .from('transaction_matches')
+      .select('id')
+      .eq('bank_line_id', params.bankLineId)
+      .eq('organisation_id', orgId)
+      .eq('match_status', 'confirmed')
+      .maybeSingle(),
+  ]);
+
+  if (bankLineError || !bankLine) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: bankLineError?.message ?? 'Bank line not found.',
+    };
+  }
+  if (bankLine.allocated || bankLine.reconciled || existingBankMatch || existingTransactionMatch) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'This bank line is already matched, reconciled, or allocated.',
+    };
+  }
+
+  const amountPence = Number(bankLine.amount_pence);
+  if (amountPence <= 0) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'Only incoming bank transactions can be recorded as donations.',
+    };
+  }
+  if (!account || account.type !== 'income' || !account.is_active) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'Select an active income account for the donation.',
+    };
+  }
+  if (!fund || !fund.is_active) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'Select an active fund for the donation.',
+    };
+  }
+
+  if (params.incomeStreamId) {
+    const { data: stream } = await supabase
+      .from('income_streams')
+      .select('id, status')
+      .eq('id', params.incomeStreamId)
+      .eq('organisation_id', orgId)
+      .maybeSingle();
+    if (!stream || stream.status !== 'active') {
+      return {
+        success: false,
+        donationId: null,
+        donorId: null,
+        giftAidStatus: null,
+        warning: null,
+        error: 'Select an active income stream for this organisation.',
+      };
+    }
+  }
+
+  const locked = await isDateInLockedPeriod(bankLine.txn_date);
+  if (locked) {
+    return {
+      success: false,
+      donationId: null,
+      donorId: null,
+      giftAidStatus: null,
+      warning: null,
+      error: 'Donation date falls in a locked financial period.',
+    };
+  }
+
+  let donorId = params.anonymous ? null : params.donorId ?? null;
+  if (donorId) {
+    const { data: donor } = await supabase
+      .from('donors')
+      .select('id')
+      .eq('id', donorId)
+      .eq('organisation_id', orgId)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (!donor) {
+      return {
+        success: false,
+        donationId: null,
+        donorId: null,
+        giftAidStatus: null,
+        warning: null,
+        error: 'Selected donor was not found for this organisation.',
+      };
+    }
+  } else if (!params.anonymous && params.quickCreateDonor) {
+    const fullName = optionalText(params.quickCreateDonor.fullName);
+    const firstName = optionalText(params.quickCreateDonor.firstName);
+    const lastName = optionalText(params.quickCreateDonor.lastName);
+    const { data: donor, error: donorError } = await admin
+      .from('donors')
+      .insert({
+        organisation_id: orgId,
+        full_name: fullName,
+        display_name: fullName,
+        title: optionalText(params.quickCreateDonor.title),
+        first_name: firstName,
+        last_name: lastName,
+        house_name_or_number: optionalText(params.quickCreateDonor.houseNameOrNumber),
+        address: optionalText(params.quickCreateDonor.addressLine1) ?? optionalText(params.quickCreateDonor.houseNameOrNumber),
+        address_line_1: optionalText(params.quickCreateDonor.addressLine1),
+        address_line_2: optionalText(params.quickCreateDonor.addressLine2),
+        town_city: optionalText(params.quickCreateDonor.townCity),
+        postcode: optionalText(params.quickCreateDonor.postcode),
+        email: optionalText(params.quickCreateDonor.email),
+        is_active: true,
+        created_by: user.id,
+      })
+      .select('id')
+      .single();
+
+    if (donorError || !donor) {
+      return {
+        success: false,
+        donationId: null,
+        donorId: null,
+        giftAidStatus: null,
+        warning: null,
+        error: donorError?.message ?? 'Failed to create donor.',
+      };
+    }
+    donorId = donor.id;
+
+    await logAuditEvent({
+      orgId,
+      userId: user.id,
+      action: 'create_gift_aid_donor',
+      entityType: 'donor',
+      entityId: donor.id,
+      metadata: { source: 'bank_reconciliation', bankLineId: params.bankLineId },
+    });
+  }
+
+  const [{ data: donor }, { data: declarations }] = donorId
+    ? await Promise.all([
+        supabase
+          .from('donors')
+          .select('id, full_name, first_name, last_name, house_name_or_number, address, postcode, email')
+          .eq('id', donorId)
+          .eq('organisation_id', orgId)
+          .maybeSingle(),
+        supabase
+          .from('gift_aid_declarations')
+          .select('id, status, start_date, end_date, is_active')
+          .eq('organisation_id', orgId)
+          .eq('donor_id', donorId)
+          .in('status', ['active', 'expired', 'cancelled', 'draft', 'invalid']),
+      ])
+    : [{ data: null }, { data: [] }];
+
+  const assessment = assessDonationGiftAidForReconciliation({
+    giftAidEligible: params.anonymous ? false : params.giftAidEligible,
+    donation: {
+      id: params.bankLineId,
+      donor_id: donorId,
+      donation_date: bankLine.txn_date,
+      amount_pence: amountPence,
+      gift_aid_claim_id: null,
+    },
+    donor: donor
+      ? {
+          full_name: donor.full_name,
+          first_name: donor.first_name,
+          last_name: donor.last_name,
+          house_name_or_number: donor.house_name_or_number,
+          address: donor.address,
+          postcode: donor.postcode,
+        }
+      : null,
+    declarations: (declarations ?? []).map((declaration) => ({
+      id: declaration.id,
+      status: declaration.status,
+      start_date: declaration.start_date,
+      end_date: declaration.end_date,
+      is_active: declaration.is_active,
+    })),
+  });
+
+  if (!params.anonymous && params.declarationId && assessment.matchedDeclarationId !== params.declarationId) {
+    return {
+      success: false,
+      donationId: null,
+      donorId,
+      giftAidStatus: assessment.status,
+      warning: assessment.warning,
+      error:
+        assessment.warning ??
+        'The selected Gift Aid declaration does not cover this donation date.',
+    };
+  }
+
+  const bankAccount = Array.isArray(bankLine.bank_accounts)
+    ? bankLine.bank_accounts[0] ?? null
+    : bankLine.bank_accounts;
+  const ledgerLink = await validateBankLedgerLink(bankLine.bank_account_id, orgId);
+  const linkedBankAccountId = ledgerLink.linkedAccountId;
+  if (ledgerLink.status !== 'linked' || !linkedBankAccountId) {
+    return {
+      success: false,
+      donationId: null,
+      donorId,
+      giftAidStatus: assessment.status,
+      warning: null,
+      error: ledgerLink.code,
+    };
+  }
+
+  const memo = `Donation: ${params.anonymous ? 'anonymous donor' : donor?.full_name ?? 'donor donation'}`;
+  const { data: journal, error: journalError } = await admin
+    .from('journals')
+    .insert({
+      organisation_id: orgId,
+      journal_date: bankLine.txn_date,
+      memo,
+      reference: bankLine.reference ?? `BANK-${params.bankLineId.slice(0, 8).toUpperCase()}`,
+      status: 'draft',
+      source_type: 'donation',
+      created_by: user.id,
+    })
+    .select('id')
+    .single();
+
+  if (journalError || !journal) {
+    return {
+      success: false,
+      donationId: null,
+      donorId,
+      giftAidStatus: assessment.status,
+      warning: null,
+      error: journalError?.message ?? 'Failed to create donation journal.',
+    };
+  }
+
+  const lineDescription = bankLine.description ?? memo;
+  const { error: lineError } = await admin.from('journal_lines').insert([
+    {
+      journal_id: journal.id,
+      organisation_id: orgId,
+      account_id: linkedBankAccountId,
+      fund_id: params.fundId,
+      income_stream_id: params.incomeStreamId || null,
+      description: `${bankAccount?.name ?? 'Bank'} deposit`,
+      debit_pence: amountPence,
+      credit_pence: 0,
+    },
+    {
+      journal_id: journal.id,
+      organisation_id: orgId,
+      account_id: params.accountId,
+      fund_id: params.fundId,
+      income_stream_id: params.incomeStreamId || null,
+      description: lineDescription,
+      debit_pence: 0,
+      credit_pence: amountPence,
+    },
+  ]);
+
+  if (lineError) {
+    await admin.from('journals').delete().eq('id', journal.id);
+    return {
+      success: false,
+      donationId: null,
+      donorId,
+      giftAidStatus: assessment.status,
+      warning: null,
+      error: lineError.message,
+    };
+  }
+
+  await admin
+    .from('journals')
+    .update({ status: 'posted', posted_at: new Date().toISOString() })
+    .eq('id', journal.id);
+
+  const providerReference = bankLine.reference ?? bankLine.description ?? params.bankLineId;
+  const { data: donation, error: donationError } = await admin
+    .from('donations')
+    .insert({
+      organisation_id: orgId,
+      donor_id: donorId,
+      donation_date: bankLine.txn_date,
+      amount_pence: amountPence,
+      gross_amount_pence: amountPence,
+      fee_amount_pence: 0,
+      net_amount_pence: amountPence,
+      channel: 'bank_transfer',
+      source: 'manual',
+      fund_id: params.fundId,
+      income_stream_id: params.incomeStreamId || null,
+      journal_id: journal.id,
+      bank_transaction_id: params.bankLineId,
+      status: 'posted',
+      provider_reference: providerReference,
+      gift_aid_eligible: assessment.giftAidEligible,
+      gift_aid_status: assessment.status,
+      matched_declaration_id: assessment.matchedDeclarationId,
+      gift_aid_estimated_claim_pence: assessment.estimatedClaimPence,
+      review_reason: assessment.reason,
+      fingerprint: `${donorId ?? 'anonymous'}|${bankLine.txn_date}|${amountPence}|${providerReference}`,
+      created_by: user.id,
+      updated_by: user.id,
+    })
+    .select('id')
+    .single();
+
+  if (donationError || !donation) {
+    await admin.from('journal_lines').delete().eq('journal_id', journal.id);
+    await admin.from('journals').delete().eq('id', journal.id);
+    return {
+      success: false,
+      donationId: null,
+      donorId,
+      giftAidStatus: assessment.status,
+      warning: null,
+      error: donationError?.message ?? 'Failed to create donation record.',
+    };
+  }
+
+  await Promise.all([
+    admin.from('journals').update({ source_id: donation.id }).eq('id', journal.id),
+    admin
+      .from('bank_lines')
+      .update({
+        allocated: true,
+        reconciled: true,
+        reconciled_at: new Date().toISOString(),
+      })
+      .eq('id', params.bankLineId)
+      .eq('organisation_id', orgId),
+    admin.from('bank_reconciliation_matches').insert({
+      organisation_id: orgId,
+      bank_line_id: params.bankLineId,
+      journal_id: journal.id,
+      match_type: 'manual',
+      provider: 'gift_aid_donation',
+      matched_by: user.id,
+    }),
+  ]);
+
+  await admin
+    .from('bank_transaction_donor_matches')
+    .update({
+      review_status: 'superseded',
+      updated_by: user.id,
+    })
+    .eq('workspace_id', orgId)
+    .eq('bank_transaction_id', params.bankLineId)
+    .in('review_status', ['suggested', 'auto_confirmed']);
+
+  const { data: existingDonorMatch } = donorId
+    ? await admin
+        .from('bank_transaction_donor_matches')
+        .select('id')
+        .eq('workspace_id', orgId)
+        .eq('bank_transaction_id', params.bankLineId)
+        .eq('donor_id', donorId)
+        .eq('match_method', 'manual')
+        .maybeSingle()
+    : { data: null };
+
+  if (donorId && existingDonorMatch) {
+    await admin
+      .from('bank_transaction_donor_matches')
+      .update({
+        donation_id: donation.id,
+        review_status: 'confirmed',
+        confidence_score: 1,
+        notes: 'Donor selected while reconciling bank transaction as a donation.',
+        match_metadata: {
+          giftAidStatus: assessment.status,
+          declarationId: assessment.matchedDeclarationId,
+        },
+        updated_by: user.id,
+      })
+      .eq('id', existingDonorMatch.id);
+  } else if (donorId) {
+    await admin.from('bank_transaction_donor_matches').insert({
+      workspace_id: orgId,
+      bank_transaction_id: params.bankLineId,
+      donation_id: donation.id,
+      donor_id: donorId,
+      match_method: 'manual',
+      confidence_score: 1,
+      review_status: 'confirmed',
+      notes: 'Donor selected while reconciling bank transaction as a donation.',
+      match_metadata: {
+        giftAidStatus: assessment.status,
+        declarationId: assessment.matchedDeclarationId,
+      },
+      created_by: user.id,
+      updated_by: user.id,
+    });
+  }
+
+  if (donorId && params.saveBankReferenceAsAlias) {
+    const aliasText = optionalText(bankLine.reference) ?? optionalText(bankLine.description);
+    const normalizedAlias = normalizeDonorMatchAlias(aliasText);
+    if (aliasText && normalizedAlias) {
+      await admin.from('donor_matching_aliases').upsert(
+        {
+          workspace_id: orgId,
+          donor_id: donorId,
+          alias_text: aliasText,
+          normalized_alias: normalizedAlias,
+          source: 'bank_reference',
+          confidence: 0.95,
+          created_from_bank_transaction_id: params.bankLineId,
+        },
+        { onConflict: 'workspace_id,normalized_alias,donor_id' }
+      );
+    }
+  }
+
+  let declarationRequestId: string | null = null;
+  let declarationLinkUrl: string | null = null;
+  let followUpWarning = assessment.warning;
+
+  if (donorId && params.addGiftAidFollowUp && assessment.status === 'missing_declaration') {
+    declarationRequestId = await upsertGiftAidDeclarationRequest({
+      admin,
+      orgId,
+      donorId,
+      donationId: donation.id,
+      userId: user.id,
+    });
+
+    if (params.generateGiftAidDeclarationLink) {
+      const result = await generateGiftAidDeclarationLinkForRequest({
+        admin,
+        orgId,
+        donorId,
+        donationId: donation.id,
+        requestId: declarationRequestId,
+        donorEmail: optionalText(donor?.email),
+        userId: user.id,
+      });
+      declarationLinkUrl = result.declarationLinkUrl;
+      followUpWarning = result.warning ?? followUpWarning;
+    }
+  }
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'reconcile_bank_line_as_donation',
+    entityType: 'donation',
+    entityId: donation.id,
+    metadata: {
+      bankLineId: params.bankLineId,
+      donorId,
+      fundId: params.fundId,
+      accountId: params.accountId,
+      incomeStreamId: params.incomeStreamId ?? null,
+      giftAidStatus: assessment.status,
+      anonymous: Boolean(params.anonymous),
+      savedBankReferenceAsAlias: Boolean(params.saveBankReferenceAsAlias && donorId),
+      declarationRequestId,
+      declarationLinkGenerated: Boolean(declarationLinkUrl),
+      warning: followUpWarning,
+      alert:
+        assessment.status === 'missing_declaration'
+          ? GIFT_AID_DECLARATION_MISSING_ALERT
+          : null,
+    },
+  });
+
+  invalidateOrgReportCache(orgId);
+
+  return {
+    success: true,
+    donationId: donation.id,
+    donorId,
+    giftAidStatus: assessment.status,
+    declarationRequestId,
+    declarationLinkUrl,
+    warning: followUpWarning,
+    error: null,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  removeMatch                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -337,7 +1235,7 @@ export async function removeMatch(
   matchId: string
 ): Promise<{ success: boolean; error: string | null }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { role, orgId, user } = await getActiveOrg();
 
   try { assertCanPerform(role, 'delete', 'reconciliation'); }
   catch (e) { return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' }; }
@@ -356,7 +1254,15 @@ export async function removeMatch(
     .delete()
     .eq('id', matchId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    await logServerFailure({
+      area: 'reconciliation',
+      event: 'remove_match_failed',
+      error,
+      metadata: { matchId, orgId, userId: user.id },
+    });
+    return { success: false, error: error.message };
+  }
 
   // Clear reconciled flag on the bank line
   if (match?.bank_line_id) {
@@ -575,10 +1481,15 @@ export async function getClearableLines(params: {
   // - Already assigned to THIS reconciliation (cleared in this session)
   const { data, error } = await supabase
     .from('bank_lines')
-    .select('id, txn_date, description, reference, amount_pence, balance_pence, allocated, reconciliation_id')
+    .select('id, txn_date, description, reference, amount_pence, balance_pence, allocated, reconciled, status, posted_journal_id, matched_source_type, reconciliation_id')
     .eq('bank_account_id', bankAccountId)
     .lte('txn_date', statementDate)
     .or(`reconciliation_id.is.null,reconciliation_id.eq.${reconciliationId}`)
+    .not('status', 'in', '("excluded","duplicate","matched","reconciled")')
+    .eq('reconciled', false)
+    .eq('allocated', false)
+    .is('posted_journal_id', null)
+    .is('matched_source_type', null)
     .order('txn_date', { ascending: true });
 
   if (error) return { data: [], error: error.message };
@@ -768,7 +1679,7 @@ export async function finalizeReconciliation(
   // Mark all cleared bank lines as reconciled
   await supabase
     .from('bank_lines')
-    .update({ reconciled: true, reconciled_at: new Date().toISOString() })
+    .update({ reconciled: true, reconciled_at: new Date().toISOString(), reconciled_by: user.id, status: 'reconciled' })
     .eq('reconciliation_id', reconciliationId);
 
   return { success: true, error: null };
@@ -793,7 +1704,7 @@ export async function undoReconciliation(
   // Unlink bank lines
   await supabase
     .from('bank_lines')
-    .update({ reconciliation_id: null, reconciled: false, reconciled_at: null })
+    .update({ reconciliation_id: null, reconciled: false, reconciled_at: null, reconciled_by: null, status: 'unmatched' })
     .eq('reconciliation_id', reconciliationId);
 
   // Delete the reconciliation record
@@ -912,7 +1823,7 @@ export async function getClearingReconciliation(
 
   // Fetch the corresponding journal metadata for memo/date/status filtering
   const journalIds = [...new Set((journalLines ?? []).map((jl) => jl.journal_id))];
-  let journalMetaMap = new Map<string, { memo: string | null; journal_date: string; status: string }>();
+  const journalMetaMap = new Map<string, { memo: string | null; journal_date: string; status: string }>();
   if (journalIds.length > 0) {
     const { data: journals } = await supabase
       .from('journals')
@@ -976,16 +1887,9 @@ export async function getBankGLBalance(
   const supabase = await createClient();
   const { orgId } = await getActiveOrg();
 
-  // Get the linked GL account for this bank account
-  const { data: ba } = await supabase
-    .from('bank_accounts')
-    .select('linked_account_id')
-    .eq('id', bankAccountId)
-    .eq('organisation_id', orgId)
-    .single();
-
-  if (!ba?.linked_account_id) {
-    return { data: null, error: 'Bank account has no linked GL account.' };
+  const ledgerLink = await validateBankLedgerLink(bankAccountId, orgId);
+  if (ledgerLink.status !== 'linked' || !ledgerLink.linkedAccountId) {
+    return { data: null, error: ledgerLink.code };
   }
 
   // Sum all posted journal_lines touching this account
@@ -1013,7 +1917,7 @@ export async function getBankGLBalance(
   const { data: lines } = await supabase
     .from('journal_lines')
     .select('debit_pence, credit_pence')
-    .eq('account_id', ba.linked_account_id)
+    .eq('account_id', ledgerLink.linkedAccountId)
     .in('journal_id', journalIds);
 
   let glBalance = 0;

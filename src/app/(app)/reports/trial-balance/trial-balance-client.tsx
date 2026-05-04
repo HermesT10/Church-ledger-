@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button';
 import { getTrialBalance } from '@/lib/reports/glReports';
 import type { STrialBalanceReport } from '@/lib/reports/types';
 import { ReportShell } from '@/components/reports/report-shell';
+import { ReportFilterBar } from '@/components/reports/report-filter-bar';
+
+const FILTER_SELECT_CLASS = 'h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none transition focus:border-primary/30 focus:ring-[3px] focus:ring-primary/10';
 
 function pence(v: number) {
   return `£${(v / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`;
@@ -51,33 +54,33 @@ export function TrialBalanceClient({ initialReport, funds, error }: Props) {
       description="All accounts with debit and credit totals."
       activeReport="/reports/trial-balance"
       action={
-        <div className="flex flex-wrap gap-4 items-end">
-          <div>
-            <label className="text-sm text-muted-foreground block">As of Date</label>
+        <ReportFilterBar>
+          <label className="space-y-1.5">
+            <span className="block text-xs font-semibold text-muted-foreground">As of date</span>
             <input
               type="date"
               value={asOfDate}
               onChange={(e) => setAsOfDate(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+              className={FILTER_SELECT_CLASS}
             />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block">Fund</label>
+          </label>
+          <label className="space-y-1.5">
+            <span className="block text-xs font-semibold text-muted-foreground">Fund</span>
             <select
               value={fundId}
               onChange={(e) => setFundId(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-xs"
+              className={FILTER_SELECT_CLASS}
             >
               <option value="">All Funds</option>
               {funds.map((f) => (
                 <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
-          </div>
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+          </label>
+          <Button variant="outline" size="sm" className="h-10 self-end rounded-xl" onClick={refresh} disabled={loading}>
             {loading ? 'Loading...' : 'Refresh'}
           </Button>
-        </div>
+        </ReportFilterBar>
       }
       error={error}
     >

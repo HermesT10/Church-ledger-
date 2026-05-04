@@ -4,9 +4,9 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  exportGiftAidClaimCsv,
   markClaimSubmitted,
   recordGiftAidPayment,
+  syncGiftAidBatchExpectedPaymentDefaults,
 } from '@/lib/giftaid/actions';
 import type { GiftAidClaimDetail, ClaimDonationRow } from '@/lib/giftaid/types';
 import { toast } from 'sonner';
@@ -17,7 +17,6 @@ import {
   ArrowLeft,
   Banknote,
   FileText,
-  Clock,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -60,7 +59,7 @@ function formatPounds(pence: number): string {
 function statusBadge(status: string) {
   switch (status) {
     case 'paid':
-      return <Badge className="bg-green-100 text-green-800 hover:bg-green-200 text-base">Paid</Badge>;
+      return <Badge className="bg-success-soft text-success hover:bg-success-soft text-base">Paid</Badge>;
     case 'submitted':
       return <Badge className="text-base">Submitted</Badge>;
     default:
@@ -92,28 +91,6 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
 
   const totalAmountPence = donations.reduce((s, d) => s + d.amount_pence, 0);
   const totalClaimablePence = donations.reduce((s, d) => s + d.claimable_pence, 0);
-
-  /* ---- Export CSV ---- */
-  const handleExport = () => {
-    startTransition(async () => {
-      const { data, error } = await exportGiftAidClaimCsv({ claimId: claim.id });
-      if (error || !data) {
-        toast.error(error ?? 'Failed to export CSV.');
-        return;
-      }
-
-      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `gift-aid-claim-${claim.id.slice(0, 8)}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success('CSV downloaded.');
-    });
-  };
 
   /* ---- Mark submitted ---- */
   const handleSubmit = () => {
@@ -155,6 +132,21 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Claim record</p>
+            <h2 className="text-2xl font-bold tracking-tight">
+              Claim {claim.id.slice(0, 8)}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Review included donations, export the HMRC file, and track submission and payment.
+            </p>
+          </div>
+          <div>{statusBadge(claim.status)}</div>
+        </CardContent>
+      </Card>
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
@@ -190,7 +182,7 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Claimable (25%)</p>
-            <p className="text-lg font-semibold text-green-600">
+            <p className="text-lg font-semibold text-success">
               {formatPounds(totalClaimablePence)}
             </p>
           </CardContent>
@@ -199,8 +191,8 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
 
       {/* Status-specific banners */}
       {claim.status === 'submitted' && (
-        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
-          <Send size={16} className="text-blue-600 shrink-0" />
+        <div className="flex items-center gap-2 rounded-2xl border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
+          <Send size={16} className="shrink-0" />
           <span>
             Submitted to HMRC on {claim.submitted_at ? formatDate(claim.submitted_at) : 'N/A'}.
             {claim.reference && (
@@ -211,15 +203,15 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
       )}
 
       {claim.status === 'paid' && (
-        <div className="rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800 flex items-center gap-2">
-          <CheckCircle size={16} className="text-green-600 shrink-0" />
+        <div className="flex items-center gap-2 rounded-2xl border border-success/20 bg-success-soft px-4 py-3 text-sm text-success">
+          <CheckCircle size={16} className="shrink-0" />
           <span>
             HMRC payment received{claim.paid_at ? ` on ${formatDate(claim.paid_at)}` : ''}.
             {claim.journal_id && (
               <>
                 {' '}
                 <Link
-                  href={`/journal/${claim.journal_id}`}
+                  href={`/journals/${claim.journal_id}`}
                   className="underline font-medium"
                 >
                   View Journal Entry
@@ -229,6 +221,120 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
           </span>
         </div>
       )}
+
+      {claim.batch_payment ? (
+        <Card>
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>HMRC bank payment reconciliation</CardTitle>
+              <CardDescription>
+                Compare expected reclaim totals with allocations from incoming bank lines.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/gift-aid/reconciliation?batch=${claim.id}`}>
+                  Open reconciliation workspace
+                </Link>
+              </Button>
+              {canEdit ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      const { success, error } = await syncGiftAidBatchExpectedPaymentDefaults({
+                        claimBatchId: claim.id,
+                      });
+                      if (error || !success) toast.error(error ?? 'Could not sync');
+                      else {
+                        toast.success('Expected payment defaults filled from batch totals.');
+                        router.refresh();
+                      }
+                    });
+                  }}
+                >
+                  Fill expected defaults
+                </Button>
+              ) : null}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Claim total (Gift Aid)</p>
+                <p className="text-lg font-semibold">
+                  {formatPounds(claim.batch_payment.claim_total_pence)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Expected payment</p>
+                <p className="text-lg font-semibold">
+                  {claim.batch_payment.expected_payment_amount_pence != null
+                    ? formatPounds(claim.batch_payment.expected_payment_amount_pence)
+                    : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Received (allocated)</p>
+                <p className="text-lg font-semibold">
+                  {formatPounds(claim.batch_payment.received_payment_total_pence)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Payment status</p>
+                <Badge variant="outline" className="mt-1 capitalize">
+                  {claim.batch_payment.gift_aid_payment_status.replace(/_/g, ' ')}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Last journal</p>
+                {claim.batch_payment.payment_journal_id ? (
+                  <Button asChild variant="link" className="h-auto p-0 text-base font-semibold">
+                    <Link href={`/journals/${claim.batch_payment.payment_journal_id}`}>
+                      View
+                    </Link>
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">—</p>
+                )}
+              </div>
+            </div>
+            {claim.batch_payment.allocations.length > 0 ? (
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Allocated</TableHead>
+                      <TableHead>Reference</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {claim.batch_payment.allocations.map((a) => (
+                      <TableRow key={a.id}>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {a.txn_date ? formatDate(a.txn_date) : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatPounds(a.allocated_amount_pence)}
+                        </TableCell>
+                        <TableCell className="max-w-[320px] truncate text-muted-foreground text-xs">
+                          {(a.reference ?? '') || (a.description ?? '') || '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No allocations yet.</p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Donations table */}
       <Card>
@@ -266,7 +372,7 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
                       <TableCell className="text-right">
                         {formatPounds(d.amount_pence)}
                       </TableCell>
-                      <TableCell className="text-right font-medium text-green-600">
+                      <TableCell className="text-right font-medium text-success">
                         {formatPounds(d.claimable_pence)}
                       </TableCell>
                     </TableRow>
@@ -288,7 +394,7 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
                 <span className="text-sm text-muted-foreground mr-4">
                   {formatPounds(totalAmountPence)}
                 </span>
-                <span className="text-lg font-bold text-green-600">
+                <span className="text-lg font-bold text-success">
                   {formatPounds(totalClaimablePence)}
                 </span>
               </div>
@@ -303,16 +409,25 @@ export function ClaimDetailClient({ claim, donations, canEdit, approvalHistory }
           <CardTitle>Actions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Export CSV */}
-          <Button onClick={handleExport} disabled={isPending}>
-            <Download size={14} className="mr-1" />
-            {isPending ? 'Exporting…' : 'Export CSV for HMRC'}
+          {!claim.export_ready && !claim.latest_export_id ? (
+            <div className="rounded-xl border border-warning/20 bg-warning-soft p-3 text-sm text-warning">
+              {claim.export_blockers.map((message) => (
+                <p key={message}>{message}</p>
+              ))}
+            </div>
+          ) : null}
+
+          <Button asChild>
+            <Link href={`/gift-aid/${claim.id}/schedule`}>
+              <Download size={14} className="mr-1" />
+              Preview / export HMRC schedule
+            </Link>
           </Button>
 
           {/* View Journal (if paid) */}
           {claim.journal_id && (
             <Button asChild variant="outline">
-              <Link href={`/journal/${claim.journal_id}`}>
+              <Link href={`/journals/${claim.journal_id}`}>
                 <FileText size={14} className="mr-1" />
                 View Journal Entry
               </Link>

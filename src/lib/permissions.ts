@@ -46,9 +46,11 @@ export type Module =
   | 'giving_imports'
   | 'giving_platforms'
   | 'reconciliation'
+  | 'transactions'
   | 'settings'
   | 'members'
   | 'reports'
+  | 'calendar'
   | 'workflows'
   | 'conversations';
 
@@ -234,6 +236,58 @@ export function assertCanPerform(
   module: Module,
 ): void {
   const result = canPerform(role, action, module);
+  if (!result.allowed) {
+    throw new PermissionError(result.reason ?? 'Permission denied.');
+  }
+}
+
+export function canReviewGiftAid(role: string): PermissionResult {
+  if (!VALID_ROLES.has(role)) {
+    return { allowed: false, reason: `Unknown role: ${role}` };
+  }
+
+  const typedRole = role as Role;
+  if (
+    typedRole === 'admin' ||
+    typedRole === 'treasurer' ||
+    typedRole === 'finance_user'
+  ) {
+    return { allowed: true };
+  }
+
+  const label = ROLE_LABELS[typedRole] ?? typedRole;
+  return {
+    allowed: false,
+    reason: `${label} cannot review or update the Gift Aid workflow.`,
+  };
+}
+
+export function assertCanReviewGiftAid(role: string): void {
+  const result = canReviewGiftAid(role);
+  if (!result.allowed) {
+    throw new PermissionError(result.reason ?? 'Permission denied.');
+  }
+}
+
+export function canExportGiftAid(role: string): PermissionResult {
+  if (!VALID_ROLES.has(role)) {
+    return { allowed: false, reason: `Unknown role: ${role}` };
+  }
+
+  const typedRole = role as Role;
+  if (typedRole === 'admin' || typedRole === 'treasurer') {
+    return { allowed: true };
+  }
+
+  const label = ROLE_LABELS[typedRole] ?? typedRole;
+  return {
+    allowed: false,
+    reason: `${label} cannot export or submit Gift Aid claim batches.`,
+  };
+}
+
+export function assertCanExportGiftAid(role: string): void {
+  const result = canExportGiftAid(role);
   if (!result.allowed) {
     throw new PermissionError(result.reason ?? 'Permission denied.');
   }

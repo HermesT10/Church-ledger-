@@ -16,9 +16,10 @@ import { toast } from 'sonner';
 interface Props {
   donors: { id: string; name: string }[];
   funds: { id: string; name: string; type: string }[];
+  incomeStreams: { id: string; code: string; name: string }[];
 }
 
-export function NewDonationClient({ donors, funds }: Props) {
+export function NewDonationClient({ donors, funds, incomeStreams }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -26,6 +27,7 @@ export function NewDonationClient({ donors, funds }: Props) {
   const [donationDate, setDonationDate] = useState(new Date().toISOString().slice(0, 10));
   const [channel, setChannel] = useState<DonationChannel>('bank_transfer');
   const [fundId, setFundId] = useState('');
+  const [incomeStreamId, setIncomeStreamId] = useState('');
   const [grossStr, setGrossStr] = useState('');
   const [feeStr, setFeeStr] = useState('0');
   const [providerRef, setProviderRef] = useState('');
@@ -48,6 +50,7 @@ export function NewDonationClient({ donors, funds }: Props) {
         donationDate,
         channel,
         fundId: fundId || null,
+        incomeStreamId: incomeStreamId || null,
         grossAmountPence: grossPence,
         feeAmountPence: feePence,
         providerReference: providerRef || undefined,
@@ -122,6 +125,24 @@ export function NewDonationClient({ donors, funds }: Props) {
               <option key={f.id} value={f.id}>{f.name} ({f.type})</option>
             ))}
           </select>
+        </div>
+
+        {/* Income stream (analytic tag; configure under Funds → Income streams) */}
+        <div className="space-y-1.5">
+          <Label>Income stream (optional)</Label>
+          <select
+            className="flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm"
+            value={incomeStreamId}
+            onChange={(e) => setIncomeStreamId(e.target.value)}
+          >
+            <option value="">—</option>
+            {incomeStreams.map((s) => (
+              <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Tags donations income for reporting (e.g. giving vs lettings). Create streams from Funds → Income streams.
+          </p>
         </div>
 
         {/* Amount fields */}

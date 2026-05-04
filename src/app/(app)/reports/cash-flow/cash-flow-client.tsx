@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import { getCashFlowReport } from '@/lib/reports/actions';
 import type { SCashFlowReport } from '@/lib/reports/types';
 import { Button } from '@/components/ui/button';
@@ -183,17 +183,17 @@ export function CashFlowClient({ initialData, orgId, role, defaultYear, error }:
                 </TableCell>
               </TableRow>
 
-              {report.sections.map((section) => (
-                <>
+              {report.sections.map((section, sectionIndex) => (
+                <Fragment key={`${section.label}-${sectionIndex}`}>
                   {/* Section header */}
-                  <TableRow key={section.label + '-header'} className="border-t-2">
+                  <TableRow className="border-t-2">
                     <TableCell colSpan={2} className="text-sm font-semibold text-muted-foreground pt-4 pb-1">
                       {section.label}
                     </TableCell>
                   </TableRow>
                   {/* Section items */}
                   {section.items.map((item, idx) => (
-                    <TableRow key={`${section.label}-${idx}`}>
+                    <TableRow key={`${section.label}-${sectionIndex}-item-${idx}`}>
                       <TableCell className="pl-6">{item.label}</TableCell>
                       <TableCell className={`text-right font-mono ${item.amountPence < 0 ? 'text-red-600' : ''}`}>
                         {penceToPounds(item.amountPence)}
@@ -201,13 +201,13 @@ export function CashFlowClient({ initialData, orgId, role, defaultYear, error }:
                     </TableRow>
                   ))}
                   {/* Section total */}
-                  <TableRow key={section.label + '-total'} className="font-medium">
+                  <TableRow className="font-medium">
                     <TableCell className="pl-6">Net {section.label}</TableCell>
                     <TableCell className={`text-right font-mono ${section.totalPence < 0 ? 'text-red-600' : ''}`}>
                       {penceToPounds(section.totalPence)}
                     </TableCell>
                   </TableRow>
-                </>
+                </Fragment>
               ))}
 
               {/* Net Change */}

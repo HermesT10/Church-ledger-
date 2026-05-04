@@ -1,8 +1,11 @@
 'use server';
 
-import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
-import { getCached, setCached } from '@/lib/cache';
+import {
+  getOrgReportCacheTag,
+  getReportScopeCacheTag,
+  runCachedQuery,
+} from '@/lib/cache';
 import { timedQuery } from '@/lib/perf';
 import type {
   DashboardOverview,
@@ -16,7 +19,21 @@ import type {
   DashboardRecentTxn,
   DashboardSupplierSpend,
   DashboardPayrollSummary,
+  DashboardFinancialOverview,
+  DashboardCashPositionRow,
 } from './types';
+import {
+  buildFinancialAlerts,
+  buildMonthlyIncomeExpense,
+  buildRestrictedFundTracker,
+  buildYearComparison,
+  calculateLoanAndLiabilityTotals,
+  sumCashPositionRows,
+  type DashboardLedgerLineInput,
+} from './dashboard-financial-overview';
+import { getPostedAccountNetMap } from '@/lib/accounts/balances';
+import { syncDashboardTasks } from '@/lib/dashboard/tasks';
+import { getCalendarEvents } from '@/lib/calendar/actions';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -80,6 +97,37 @@ function getDateRange(period: string): {
   }
 }
 
+function alertToTodoType(severity: 'critical' | 'warning' | 'info' | 'success'): TodoItem['type'] {
+  if (severity === 'critical' || severity === 'warning') return 'warning';
+  if (severity === 'success') return 'info';
+  return 'action';
+}
+
+function mergeDashboardTaskCandidates(
+  todoItems: TodoItem[],
+  alerts: DashboardFinancialOverview['alerts'],
+): TodoItem[] {
+  const merged = [...todoItems];
+  const existingKeys = new Set(merged.map((item) => item.key));
+
+  for (const alert of alerts) {
+    const key = `financial-alert-${alert.id}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    merged.push({
+      key,
+      label: alert.message,
+      description: alert.recommendedAction,
+      href: alert.href,
+      type: alertToTodoType(alert.severity),
+      sourceType: 'dashboard_alert',
+      sourceId: alert.id,
+    });
+  }
+
+  return merged;
+}
+
 /* ------------------------------------------------------------------ */
 /*  getDashboardOverview                                               */
 /* ------------------------------------------------------------------ */
@@ -88,19 +136,36 @@ const CACHE_TTL_MS = 60 * 1000;
 
 export async function getDashboardOverview(params: {
   orgId: string;
+  userId?: string;
+  role?: string;
   period: string;
+  selectedYear?: number;
+  comparePreviousYear?: boolean;
   visibleWidgets?: string[];
 }): Promise<{ data: DashboardOverview; error: string | null }> {
-  const { orgId, period, visibleWidgets = [] } = params;
+  const {
+    orgId,
+    userId,
+    role,
+    period,
+    selectedYear = new Date().getFullYear(),
+    comparePreviousYear = false,
+    visibleWidgets = [],
+  } = params;
   const wantWidget = (id: string) => visibleWidgets.includes(id);
+  const widgetKey = visibleWidgets.slice().sort().join(',');
 
-  const cacheKey = `dashboard-overview:${orgId}:${period}:${visibleWidgets.sort().join(',')}`;
-  const cached = getCached<DashboardOverview>(cacheKey);
-  if (cached) return { data: cached, error: null };
-
-  return timedQuery(`getDashboardOverview(${orgId}, ${period})`, async () => {
-    const supabase = await createClient();
-    const { start, end, priorStart, priorEnd, label } = getDateRange(period);
+  const overview = await runCachedQuery<{ data: DashboardOverview; error: string | null }>({
+    keyParts: ['dashboard-overview', orgId, period, String(selectedYear), comparePreviousYear ? 'compare' : 'no-compare', widgetKey],
+    tags: [
+      getOrgReportCacheTag(orgId),
+      getReportScopeCacheTag(orgId, 'dashboard-overview'),
+    ],
+    revalidateSeconds: CACHE_TTL_MS / 1000,
+    loader: () =>
+      timedQuery(`getDashboardOverview(${orgId}, ${period})`, async () => {
+        const supabase = await createClient();
+        const { start, end, priorStart, priorEnd, label } = getDateRange(period);
 
     // Fetch org name
     const { data: org } = await supabase
@@ -171,7 +236,7 @@ export async function getDashboardOverview(params: {
       ]),
     ];
 
-    let accountMap: Record<string, { type: string; name: string }> = {};
+    const accountMap: Record<string, { type: string; name: string }> = {};
     if (allAccountIds.length > 0) {
       const { data: accounts } = await supabase
         .from('accounts')
@@ -309,6 +374,7 @@ export async function getDashboardOverview(params: {
     // Build to-do items — query many real data sources in parallel
     const todoItems: TodoItem[] = [];
     const today = new Date().toISOString().slice(0, 10);
+    const upcomingEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
     const [
       unpaidBillsRes,
@@ -323,6 +389,12 @@ export async function getDashboardOverview(params: {
       draftPayrollRunsRes,
       gaDonationsRes,
       overspentFundsRes,
+      lettingsOverdueRes,
+      lettingsUnpaidRes,
+      registerAccountsRes,
+      registerMappedAccountsRes,
+      upcomingCalendarRes,
+      overdueCalendarRemindersRes,
     ] = await Promise.all([
       // 1. Unpaid bills (approved/posted but not paid)
       supabase
@@ -414,15 +486,55 @@ export async function getDashboardOverview(params: {
         .eq('organisation_id', orgId)
         .eq('type', 'restricted')
         .eq('is_active', true),
+      supabase
+        .from('lettings_charges')
+        .select('id', { count: 'exact', head: true })
+        .eq('organisation_id', orgId)
+        .eq('status', 'overdue'),
+      supabase
+        .from('lettings_charges')
+        .select('outstanding_amount_pence')
+        .eq('organisation_id', orgId)
+        .gt('outstanding_amount_pence', 0)
+        .not('status', 'in', '("waived","cancelled")'),
+      supabase
+        .from('accounts')
+        .select('id, type')
+        .eq('organisation_id', orgId)
+        .eq('is_active', true)
+        .in('type', ['income', 'expense']),
+      supabase
+        .from('register_category_mappings')
+        .select('account_id')
+        .eq('organisation_id', orgId)
+        .not('account_id', 'is', null),
+      supabase
+        .from('calendar_events')
+        .select('id, title, start_at, category')
+        .eq('workspace_id', orgId)
+        .eq('status', 'scheduled')
+        .gte('start_at', new Date().toISOString())
+        .lte('start_at', upcomingEnd)
+        .order('start_at')
+        .limit(5),
+      supabase
+        .from('calendar_reminders')
+        .select('id, title, due_at')
+        .eq('workspace_id', orgId)
+        .in('state', ['scheduled', 'sent'])
+        .lt('due_at', new Date().toISOString())
+        .limit(5),
     ]);
 
     // --- Overdue bills (highest priority — red warning) ---
     const overdueBills = overdueBillsRes.count ?? 0;
     if (overdueBills > 0) {
       todoItems.push({
+        key: 'overdue-bills',
         label: `${overdueBills} overdue invoice${overdueBills === 1 ? '' : 's'} — payment past due`,
         href: '/bills?status=approved',
         type: 'warning',
+        sourceType: 'bill',
       });
     }
 
@@ -430,9 +542,11 @@ export async function getDashboardOverview(params: {
     const unpaidBills = (unpaidBillsRes.count ?? 0) - overdueBills;
     if (unpaidBills > 0) {
       todoItems.push({
+        key: 'unpaid-bills',
         label: `${unpaidBills} invoice${unpaidBills === 1 ? '' : 's'} awaiting payment`,
         href: '/bills?status=approved',
         type: 'action',
+        sourceType: 'bill',
       });
     }
 
@@ -440,9 +554,11 @@ export async function getDashboardOverview(params: {
     const pendingInvoices = pendingInvoicesRes.count ?? 0;
     if (pendingInvoices > 0) {
       todoItems.push({
+        key: 'pending-invoice-submissions',
         label: `${pendingInvoices} invoice submission${pendingInvoices === 1 ? '' : 's'} to review`,
         href: '/workflows/invoices?status=pending',
         type: 'action',
+        sourceType: 'invoice_submission',
       });
     }
 
@@ -450,9 +566,11 @@ export async function getDashboardOverview(params: {
     const pendingExpenses = pendingExpensesRes.count ?? 0;
     if (pendingExpenses > 0) {
       todoItems.push({
+        key: 'pending-expense-requests',
         label: `${pendingExpenses} expense request${pendingExpenses === 1 ? '' : 's'} to review`,
         href: '/workflows/expenses?status=pending',
         type: 'action',
+        sourceType: 'expense_request',
       });
     }
 
@@ -460,9 +578,11 @@ export async function getDashboardOverview(params: {
     const cashMissingReceipts = cashSpendsMissingReceiptsRes.count ?? 0;
     if (cashMissingReceipts > 0) {
       todoItems.push({
+        key: 'cash-spends-missing-receipts',
         label: `${cashMissingReceipts} cash spend${cashMissingReceipts === 1 ? '' : 's'} missing receipt`,
         href: '/cash/spends',
         type: 'warning',
+        sourceType: 'cash_spend',
       });
     }
 
@@ -470,9 +590,11 @@ export async function getDashboardOverview(params: {
     const expMissingReceipts = expenseMissingReceiptsRes.count ?? 0;
     if (expMissingReceipts > 0) {
       todoItems.push({
+        key: 'expense-requests-missing-receipts',
         label: `${expMissingReceipts} approved expense${expMissingReceipts === 1 ? '' : 's'} missing receipt`,
         href: '/workflows/expenses',
         type: 'warning',
+        sourceType: 'expense_request',
       });
     }
 
@@ -480,9 +602,70 @@ export async function getDashboardOverview(params: {
     const unallocated = unallocatedBankLinesRes.count ?? 0;
     if (unallocated > 0) {
       todoItems.push({
+        key: 'unallocated-bank-lines',
         label: `${unallocated} bank transaction${unallocated === 1 ? '' : 's'} to allocate`,
         href: '/banking',
         type: 'action',
+        sourceType: 'bank_line',
+      });
+    }
+
+    const overdueLettings = lettingsOverdueRes.count ?? 0;
+    if (overdueLettings > 0) {
+      todoItems.push({
+        key: 'overdue-lettings',
+        label: `${overdueLettings} overdue letting${overdueLettings === 1 ? '' : 's'} to chase`,
+        href: '/lettings',
+        type: 'warning',
+        sourceType: 'letting_charge',
+      });
+    }
+
+    const unpaidLettingsPence = (lettingsUnpaidRes.data ?? []).reduce(
+      (sum, row) => sum + Number(row.outstanding_amount_pence ?? 0),
+      0,
+    );
+    if (unpaidLettingsPence > 0) {
+      todoItems.push({
+        key: 'lettings-outstanding',
+        label: `Lettings outstanding: £${(unpaidLettingsPence / 100).toFixed(2)}`,
+        href: '/lettings',
+        type: 'action',
+        sourceType: 'letting_charge',
+      });
+    }
+
+    const overdueCalendarReminders = overdueCalendarRemindersRes.data ?? [];
+    if (overdueCalendarReminders.length > 0) {
+      todoItems.push({
+        key: 'overdue-calendar-reminders',
+        label: `${overdueCalendarReminders.length} overdue calendar reminder${overdueCalendarReminders.length === 1 ? '' : 's'}`,
+        href: '/calendar?view=agenda',
+        type: 'warning',
+        sourceType: 'calendar_reminder',
+      });
+    }
+
+    const upcomingCalendar = upcomingCalendarRes.data ?? [];
+    if (upcomingCalendar.length > 0) {
+      todoItems.push({
+        key: 'upcoming-calendar-items',
+        label: `${upcomingCalendar.length} calendar item${upcomingCalendar.length === 1 ? '' : 's'} in the next 14 days`,
+        href: '/calendar?view=agenda',
+        type: 'info',
+        sourceType: 'calendar_event',
+      });
+    }
+
+    const mappedRegisterAccounts = new Set((registerMappedAccountsRes.data ?? []).map((row) => row.account_id).filter(Boolean));
+    const unmappedRegisterAccounts = (registerAccountsRes.data ?? []).filter((account) => !mappedRegisterAccounts.has(account.id));
+    if (unmappedRegisterAccounts.length > 0) {
+      todoItems.push({
+        key: 'register-account-mapping',
+        label: `${unmappedRegisterAccounts.length} income/expense account${unmappedRegisterAccounts.length === 1 ? '' : 's'} need register row mapping`,
+        href: '/reports/income-expense-summary',
+        type: 'info',
+        sourceType: 'register_category_mapping',
       });
     }
 
@@ -490,9 +673,11 @@ export async function getDashboardOverview(params: {
     const draftPaymentRuns = draftPaymentRunsRes.count ?? 0;
     if (draftPaymentRuns > 0) {
       todoItems.push({
+        key: 'draft-payment-runs',
         label: `${draftPaymentRuns} payment run${draftPaymentRuns === 1 ? '' : 's'} awaiting posting`,
         href: '/payment-runs',
         type: 'action',
+        sourceType: 'payment_run',
       });
     }
 
@@ -500,9 +685,11 @@ export async function getDashboardOverview(params: {
     const draftPayrollRuns = draftPayrollRunsRes.count ?? 0;
     if (draftPayrollRuns > 0) {
       todoItems.push({
+        key: 'draft-payroll-runs',
         label: `${draftPayrollRuns} payroll run${draftPayrollRuns === 1 ? '' : 's'} awaiting posting`,
         href: '/payroll',
         type: 'action',
+        sourceType: 'payroll_run',
       });
     }
 
@@ -510,9 +697,11 @@ export async function getDashboardOverview(params: {
     const draftBudgets = draftBudgetsRes.count ?? 0;
     if (draftBudgets > 0) {
       todoItems.push({
+        key: 'draft-budgets',
         label: `${draftBudgets} draft budget${draftBudgets === 1 ? '' : 's'} to approve`,
         href: '/budgets',
         type: 'info',
+        sourceType: 'budget',
       });
     }
 
@@ -547,9 +736,11 @@ export async function getDashboardOverview(params: {
 
       if (overspentNames.length > 0) {
         todoItems.push({
+          key: 'overspent-restricted-funds',
           label: `${overspentNames.length} restricted fund${overspentNames.length === 1 ? '' : 's'} overspent — ${overspentNames.slice(0, 2).join(', ')}${overspentNames.length > 2 ? '…' : ''}`,
           href: '/funds',
           type: 'warning',
+          sourceType: 'fund',
         });
       }
     }
@@ -557,20 +748,281 @@ export async function getDashboardOverview(params: {
     // --- Unclaimed Gift Aid ---
     if (gaDonationsRes.data && gaDonationsRes.data.length > 0) {
       todoItems.push({
+        key: 'gift-aid-claims-available',
         label: 'Gift Aid claims available to submit',
         href: '/gift-aid/new',
         type: 'info',
+        sourceType: 'gift_aid',
       });
     }
 
     // --- Static reconciliation prompt only if no unallocated lines already shown ---
     if (unallocated === 0) {
       todoItems.push({
+        key: 'review-bank-reconciliation',
         label: 'Review bank reconciliation',
         href: '/reconciliation',
         type: 'info',
+        sourceType: 'bank_reconciliation',
       });
     }
+
+    /* ================================================================ */
+    /*  Financial overview — trustee dashboard                          */
+    /* ================================================================ */
+
+    const selectedYearStart = `${selectedYear}-01-01`;
+    const selectedYearEnd = `${selectedYear}-12-31`;
+    const previousYear = selectedYear - 1;
+    const previousYearStart = `${previousYear}-01-01`;
+    const previousYearEnd = `${previousYear}-12-31`;
+
+    const [
+      selectedYearJournalsRes,
+      previousYearJournalsRes,
+      allPostedJournalsRes,
+      financialAccountsRes,
+      activeFundsRes,
+      activeBankAccountsRes,
+    ] = await Promise.all([
+      supabase
+        .from('journals')
+        .select('id, journal_date')
+        .eq('organisation_id', orgId)
+        .eq('status', 'posted')
+        .gte('journal_date', selectedYearStart)
+        .lte('journal_date', selectedYearEnd),
+      supabase
+        .from('journals')
+        .select('id, journal_date')
+        .eq('organisation_id', orgId)
+        .eq('status', 'posted')
+        .gte('journal_date', previousYearStart)
+        .lte('journal_date', previousYearEnd),
+      supabase
+        .from('journals')
+        .select('id, journal_date')
+        .eq('organisation_id', orgId)
+        .eq('status', 'posted'),
+      supabase
+        .from('accounts')
+        .select('id, code, name, type')
+        .eq('organisation_id', orgId)
+        .eq('is_active', true),
+      supabase
+        .from('funds')
+        .select('id, name, type')
+        .eq('organisation_id', orgId)
+        .eq('is_active', true),
+      supabase
+        .from('bank_accounts')
+        .select('id, name, account_type, opening_balance, updated_at, created_at, status, is_active')
+        .eq('organisation_id', orgId)
+        .eq('is_active', true)
+        .neq('status', 'archived'),
+    ]);
+
+    const financialAccounts = financialAccountsRes.data ?? [];
+    const financialAccountMap = new Map(
+      financialAccounts.map((account) => [
+        account.id,
+        {
+          code: account.code,
+          name: account.name,
+          type: account.type,
+        },
+      ]),
+    );
+
+    const selectedYearJournalDateMap = new Map(
+      (selectedYearJournalsRes.data ?? []).map((journal) => [journal.id, journal.journal_date]),
+    );
+    const previousYearJournalDateMap = new Map(
+      (previousYearJournalsRes.data ?? []).map((journal) => [journal.id, journal.journal_date]),
+    );
+    const allPostedJournalIds = (allPostedJournalsRes.data ?? []).map((journal) => journal.id);
+    const selectedYearJournalIds = (selectedYearJournalsRes.data ?? []).map((journal) => journal.id);
+    const previousYearJournalIds = (previousYearJournalsRes.data ?? []).map((journal) => journal.id);
+
+    const fetchLedgerLines = async (
+      journalIdsForLines: string[],
+      journalDateLookup: Map<string, string>,
+    ): Promise<DashboardLedgerLineInput[]> => {
+      if (journalIdsForLines.length === 0) return [];
+      const { data: ledgerRows } = await supabase
+        .from('journal_lines')
+        .select('journal_id, account_id, fund_id, debit_pence, credit_pence')
+        .eq('organisation_id', orgId)
+        .in('journal_id', journalIdsForLines);
+
+      return (ledgerRows ?? []).flatMap((line) => {
+        const account = financialAccountMap.get(line.account_id);
+        const journalDate = journalDateLookup.get(line.journal_id);
+        if (!account || !journalDate) return [];
+        return [{
+          accountId: line.account_id,
+          accountType: account.type,
+          fundId: line.fund_id ?? null,
+          journalDate,
+          debitPence: Number(line.debit_pence ?? 0),
+          creditPence: Number(line.credit_pence ?? 0),
+        }];
+      });
+    };
+
+    const allPostedJournalDateMap = new Map(
+      (allPostedJournalsRes.data ?? []).map((journal) => [journal.id, journal.journal_date]),
+    );
+    const [selectedYearLedgerLines, previousYearLedgerLines, allPostedLedgerLines] = await Promise.all([
+      fetchLedgerLines(selectedYearJournalIds, selectedYearJournalDateMap),
+      fetchLedgerLines(previousYearJournalIds, previousYearJournalDateMap),
+      fetchLedgerLines(allPostedJournalIds, allPostedJournalDateMap),
+    ]);
+
+    const activeRestrictedFunds = (activeFundsRes.data ?? [])
+      .filter((fund) => fund.type === 'restricted')
+      .map((fund) => ({ id: fund.id, name: fund.name }));
+    const restrictedFundTracker = buildRestrictedFundTracker(activeRestrictedFunds, allPostedLedgerLines);
+    const restrictedFundsRemainingPence = restrictedFundTracker.reduce(
+      (sum, fund) => sum + fund.remainingPence,
+      0,
+    );
+
+    const liabilityAccounts = financialAccounts.filter((account) => account.type === 'liability');
+    const liabilityAccountIds = liabilityAccounts.map((account) => account.id);
+    const liabilityNetMap = await getPostedAccountNetMap(orgId, liabilityAccountIds);
+    const { loansOutstandingPence, otherLiabilitiesPence } = calculateLoanAndLiabilityTotals(
+      liabilityAccounts.map((account) => ({
+        code: account.code,
+        name: account.name,
+        netPence: liabilityNetMap.get(account.id)?.netPence ?? 0,
+      })),
+    );
+
+    const bankAccounts = activeBankAccountsRes.data ?? [];
+    const bankAccountIds = bankAccounts.map((account) => account.id);
+    const latestBankBalanceByAccount = new Map<string, { balancePence: number; date: string | null }>();
+    if (bankAccountIds.length > 0) {
+      const { data: bankLines } = await supabase
+        .from('bank_lines')
+        .select('bank_account_id, txn_date, balance_pence, running_balance, amount_pence, status')
+        .eq('organisation_id', orgId)
+        .in('bank_account_id', bankAccountIds)
+        .not('status', 'in', '("duplicate","excluded")')
+        .order('txn_date', { ascending: false })
+        .limit(500);
+
+      for (const line of bankLines ?? []) {
+        if (latestBankBalanceByAccount.has(line.bank_account_id)) continue;
+        const runningBalancePence = line.running_balance == null
+          ? null
+          : Math.round(Number(line.running_balance) * 100);
+        latestBankBalanceByAccount.set(line.bank_account_id, {
+          balancePence: Number(line.balance_pence ?? runningBalancePence ?? line.amount_pence ?? 0),
+          date: line.txn_date ?? null,
+        });
+      }
+    }
+
+    const assetCashAccounts = financialAccounts.filter((account) => {
+      const label = `${account.code} ${account.name}`.toLowerCase();
+      return account.type === 'asset' && /(cash|bank|current|savings|reserve)/.test(label);
+    });
+    const assetCashBalanceMap = await getPostedAccountNetMap(orgId, assetCashAccounts.map((account) => account.id));
+
+    const cashPositionRows: DashboardCashPositionRow[] = bankAccounts.map((account) => {
+      const latestBalance = latestBankBalanceByAccount.get(account.id);
+      const accountLabel = `${account.account_type ?? ''} ${account.name}`.toLowerCase();
+      const category = account.account_type === 'cash'
+        ? 'cash'
+        : /(restricted|designated)/.test(accountLabel)
+          ? 'restricted_savings'
+          : account.account_type === 'savings'
+            ? 'savings'
+            : 'current';
+      const categoryLabel = category === 'restricted_savings'
+        ? 'Restricted Savings'
+        : category === 'savings'
+          ? 'Savings / Reserves'
+          : category === 'cash'
+            ? 'Cash'
+            : 'Current Accounts';
+      const openingBalancePence = Math.round(Number(account.opening_balance ?? 0) * 100);
+
+      return {
+        id: account.id,
+        name: account.name,
+        category,
+        categoryLabel,
+        balancePence: latestBalance?.balancePence ?? openingBalancePence,
+        source: latestBalance ? 'bank_balance' : 'opening_balance',
+        lastUpdated: latestBalance?.date ?? account.updated_at ?? account.created_at ?? null,
+        href: `/banking/${account.id}`,
+      };
+    });
+
+    const existingCashRowNames = new Set(cashPositionRows.map((row) => row.name.toLowerCase()));
+    for (const account of assetCashAccounts) {
+      if (existingCashRowNames.has(account.name.toLowerCase())) continue;
+      cashPositionRows.push({
+        id: account.id,
+        name: account.name,
+        category: /restricted|designated/i.test(account.name) ? 'restricted_savings' : 'cash',
+        categoryLabel: /restricted|designated/i.test(account.name) ? 'Restricted Savings' : 'Cash',
+        balancePence: assetCashBalanceMap.get(account.id)?.netPence ?? 0,
+        source: 'ledger_balance',
+        lastUpdated: null,
+        href: `/accounts/${account.id}`,
+      });
+    }
+
+    const totalCashPence = sumCashPositionRows(cashPositionRows);
+    const monthlyIncomeExpense = buildMonthlyIncomeExpense(selectedYear, selectedYearLedgerLines);
+    const ytdIncomePence = selectedYearLedgerLines
+      .filter((line) => line.accountType === 'income')
+      .reduce((sum, line) => sum + (line.creditPence - line.debitPence), 0);
+    const ytdExpensePence = selectedYearLedgerLines
+      .filter((line) => line.accountType === 'expense')
+      .reduce((sum, line) => sum + (line.debitPence - line.creditPence), 0);
+    const totalCommitmentsPence = Math.max(0, restrictedFundsRemainingPence) + loansOutstandingPence + otherLiabilitiesPence;
+    const financialOverview: DashboardFinancialOverview = {
+      selectedYear,
+      comparePreviousYear,
+      kpis: {
+        totalCashPence,
+        restrictedFundsRemainingPence,
+        loansOutstandingPence,
+        ytdIncomePence,
+        ytdExpensePence,
+        netPositionPence: ytdIncomePence - ytdExpensePence,
+      },
+      cashPosition: cashPositionRows,
+      commitments: {
+        restrictedFundsRemainingPence,
+        loansOutstandingPence,
+        otherLiabilitiesPence,
+        totalCommitmentsPence,
+      },
+      restrictedFundTracker,
+      monthlyIncomeExpense,
+      previousYearComparison: comparePreviousYear
+        ? buildYearComparison(selectedYear, selectedYearLedgerLines, previousYearLedgerLines)
+        : null,
+      alerts: buildFinancialAlerts({
+        restrictedFunds: restrictedFundTracker,
+        loansOutstandingPence,
+        ytdIncomePence,
+        ytdExpensePence,
+        unallocatedBankLines: unallocated,
+        hasGiftAidOpportunity: Boolean(gaDonationsRes.data && gaDonationsRes.data.length > 0),
+        uncategorisedExpenseCount: unmappedRegisterAccounts.length,
+      }),
+      emptyStates: {
+        hasBankAccounts: bankAccounts.length > 0,
+        hasRestrictedFunds: activeRestrictedFunds.length > 0,
+        hasPostedActivity: selectedYearLedgerLines.length > 0,
+      },
+    };
 
     /* ================================================================ */
     /*  Optional widget data — only fetched when the widget is visible  */
@@ -593,7 +1045,6 @@ export async function getDashboardOverview(params: {
         .eq('is_active', true);
 
       if (bankAccounts && bankAccounts.length > 0) {
-        const baIds = bankAccounts.map((ba) => ba.id);
         const { data: glAccounts } = await supabase
           .from('accounts')
           .select('id, name, code')
@@ -602,7 +1053,7 @@ export async function getDashboardOverview(params: {
           .eq('is_system', true);
 
         const glAccountIds = (glAccounts ?? []).map((a) => a.id);
-        let glBalanceMap: Record<string, number> = {};
+        const glBalanceMap: Record<string, number> = {};
 
         if (glAccountIds.length > 0) {
           const { data: glLines } = await supabase
@@ -710,7 +1161,7 @@ export async function getDashboardOverview(params: {
           .from('donors')
           .select('id', { count: 'exact', head: true })
           .eq('organisation_id', orgId)
-          .not('id', 'in', `(select donor_id from gift_aid_declarations where active = true AND organisation_id = '${orgId}')`)
+          .not('id', 'in', `(select donor_id from gift_aid_declarations where is_active = true AND organisation_id = '${orgId}')`)
       ]);
 
       const estimatedReclaimPence = (eligibleRes.data ?? []).reduce(
@@ -769,8 +1220,8 @@ export async function getDashboardOverview(params: {
         .select('supplier_id, total_pence')
         .eq('organisation_id', orgId)
         .in('status', ['posted', 'paid'])
-        .gte('issue_date', start)
-        .lte('issue_date', end);
+        .gte('bill_date', start)
+        .lte('bill_date', end);
 
       if (bills && bills.length > 0) {
         const supplierIds = [...new Set(bills.map((b) => b.supplier_id).filter(Boolean))] as string[];
@@ -781,7 +1232,7 @@ export async function getDashboardOverview(params: {
           spendMap[b.supplier_id] += b.total_pence ?? 0;
         }
 
-        let nameMap: Record<string, string> = {};
+        const nameMap: Record<string, string> = {};
         if (supplierIds.length > 0) {
           const { data: suppliers } = await supabase
             .from('suppliers')
@@ -821,6 +1272,8 @@ export async function getDashboardOverview(params: {
       }
     }
 
+    const dashboardTaskItems = mergeDashboardTaskCandidates(todoItems, financialOverview.alerts);
+
     const result: DashboardOverview = {
       orgName,
       periodLabel: label,
@@ -838,7 +1291,9 @@ export async function getDashboardOverview(params: {
       peakIncome: Math.round(peakIncome * 100) / 100,
       incomeBreakdown,
       expenseBreakdown,
-      todoItems,
+      todoItems: dashboardTaskItems,
+      dayCalendarEvents: [],
+      financialOverview,
       ...(cashPosition ? { cashPosition } : {}),
       ...(fundBalancesData ? { fundBalances: fundBalancesData } : {}),
       ...(budgetVsActual ? { budgetVsActual } : {}),
@@ -848,8 +1303,41 @@ export async function getDashboardOverview(params: {
       ...(payrollSummary !== undefined ? { payrollSummary } : {}),
     };
 
-    setCached(cacheKey, result, CACHE_TTL_MS);
-
-    return { data: result, error: null };
+        return { data: result, error: null };
+      }),
   });
+
+  if (overview.error) {
+    return overview;
+  }
+
+  const today = new Date();
+  const dayStart = new Date(today);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(today);
+  dayEnd.setHours(23, 59, 59, 999);
+  const [syncedTasks, dayCalendarEvents] = await Promise.all([
+    syncDashboardTasks({
+      orgId,
+      userId,
+      role,
+      items: overview.data.todoItems,
+    }),
+    getCalendarEvents({
+      start: dayStart.toISOString(),
+      end: dayEnd.toISOString(),
+      includeFinance: true,
+      includeLettings: true,
+      includeReminders: true,
+    }).catch(() => []),
+  ]);
+
+  return {
+    ...overview,
+    data: {
+      ...overview.data,
+      todoItems: syncedTasks,
+      dayCalendarEvents,
+    },
+  };
 }

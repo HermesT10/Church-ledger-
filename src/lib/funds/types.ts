@@ -13,6 +13,19 @@ export interface FundRow {
   reporting_group: string | null;
   is_active: boolean;
   created_at: string;
+  /** Control-centre fields (00071_funds_control_centre.sql) */
+  code?: string | null;
+  description?: string | null;
+  restriction_notes?: string | null;
+  opening_balance_pence?: number | null;
+  opening_balance_date?: string | null;
+  default_income_account_id?: string | null;
+  default_expense_account_id?: string | null;
+  min_balance_warning_pence?: number | null;
+  allow_negative_balance?: boolean | null;
+  created_by?: string | null;
+  updated_at?: string | null;
+  archived_at?: string | null;
 }
 
 export interface FundWithStats extends FundRow {

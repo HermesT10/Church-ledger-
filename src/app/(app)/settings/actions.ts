@@ -2,9 +2,12 @@
 
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { logAuditEvent } from '@/lib/audit';
+import { trackProductEvent } from '@/lib/analytics/server';
+import { archiveBankAccount as archiveBankAccountBanking } from '@/lib/banking/actions';
 import type { OrgSettings, MemberRow } from './types';
 
 /* ------------------------------------------------------------------ */
@@ -20,7 +23,21 @@ export async function getSettings(orgId: string): Promise<{
   // Fetch org name
   const { data: org, error: orgErr } = await supabase
     .from('organisations')
-    .select('name')
+    .select(`
+      name,
+      legal_name,
+      charity_number,
+      address_line1,
+      address_line2,
+      city,
+      county,
+      postcode,
+      country,
+      contact_email,
+      contact_phone,
+      website_url,
+      logo_url
+    `)
     .eq('id', orgId)
     .single();
 
@@ -48,6 +65,21 @@ export async function getSettings(orgId: string): Promise<{
   return {
     data: {
       organisationName: org.name,
+      legalName: org.legal_name ?? '',
+      charityNumber: org.charity_number ?? '',
+      addressLine1: org.address_line1 ?? '',
+      addressLine2: org.address_line2 ?? '',
+      city: org.city ?? '',
+      county: org.county ?? '',
+      postcode: org.postcode ?? '',
+      country: org.country ?? '',
+      contactEmail: org.contact_email ?? '',
+      contactPhone: org.contact_phone ?? '',
+      websiteUrl: org.website_url ?? '',
+      logoUrl: org.logo_url ?? '',
+      baseCurrency: settings.base_currency ?? 'GBP',
+      reportBrandName: settings.report_brand_name ?? '',
+      reportFooterText: settings.report_footer_text ?? '',
       overspendAmountPence: settings.overspend_amount_pence,
       overspendPercent: settings.overspend_percent,
       fiscalYearStartMonth: settings.fiscal_year_start_month ?? 1,
@@ -110,6 +142,75 @@ export async function updateOrgName(
   return { error: error?.message ?? null };
 }
 
+export async function updateOrganisationProfile(
+  orgId: string,
+  fields: Partial<{
+    name: string;
+    legal_name: string | null;
+    charity_number: string | null;
+    address_line1: string | null;
+    address_line2: string | null;
+    city: string | null;
+    county: string | null;
+    postcode: string | null;
+    country: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    website_url: string | null;
+    logo_url: string | null;
+  }>,
+): Promise<{ error: string | null }> {
+  await assertWriteAllowed();
+  const { role, user } = await getActiveOrg();
+  try {
+    assertCanPerform(role, 'update', 'settings');
+  } catch (e) {
+    return { error: e instanceof PermissionError ? e.message : 'Permission denied' };
+  }
+
+  const trimmedFields = Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value.trim() || null : value,
+    ]),
+  );
+
+  if ('name' in trimmedFields && !trimmedFields.name) {
+    return { error: 'Organisation name is required' };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('organisations')
+    .update(trimmedFields)
+    .eq('id', orgId);
+
+  if (!error) {
+    await Promise.all([
+      logAuditEvent({
+        orgId,
+        userId: user.id,
+        action: 'update_organisation_profile',
+        entityType: 'organisation',
+        entityId: orgId,
+        metadata: trimmedFields,
+      }),
+      trackProductEvent({
+        organisationId: orgId,
+        userId: user.id,
+        eventType: 'org_settings_updated',
+        moduleKey: 'settings',
+        path: '/settings',
+        metadata: {
+          keys: Object.keys(trimmedFields),
+        },
+      }),
+    ]);
+  }
+
+  return { error: error?.message ?? null };
+}
+
 /* ------------------------------------------------------------------ */
 /*  updateOrgSettings                                                  */
 /* ------------------------------------------------------------------ */
@@ -145,6 +246,9 @@ export async function updateOrgSettings(
     default_donations_bank_account_id: string | null;
     default_donations_fee_account_id: string | null;
     receipt_compliance_days: number;
+    base_currency: string;
+    report_brand_name: string | null;
+    report_footer_text: string | null;
   }>,
 ): Promise<{ error: string | null }> {
   await assertWriteAllowed();
@@ -226,6 +330,27 @@ export async function changeMemberRole(
     .eq('organisation_id', orgId)
     .eq('user_id', userId);
 
+  if (!error) {
+    await Promise.all([
+      logAuditEvent({
+        orgId,
+        userId: user.id,
+        action: 'change_member_role',
+        entityType: 'membership',
+        entityId: userId,
+        metadata: { newRole },
+      }),
+      trackProductEvent({
+        organisationId: orgId,
+        userId: user.id,
+        eventType: 'member_role_changed',
+        moduleKey: 'members',
+        path: '/settings',
+        metadata: { memberUserId: userId, newRole },
+      }),
+    ]);
+  }
+
   return { error: error?.message ?? null };
 }
 
@@ -238,29 +363,72 @@ export async function removeMember(
   userId: string,
 ): Promise<{ error: string | null }> {
   await assertWriteAllowed();
-  const { role, user } = await getActiveOrg();
+  const { orgId: activeOrgId, role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'delete', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can remove members' }; }
+
+  if (activeOrgId !== orgId) {
+    return { error: 'Requested organisation does not match the active organisation.' };
+  }
 
   if (user.id === userId) {
     return { error: 'Cannot remove yourself' };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from('memberships')
-    .delete()
-    .eq('organisation_id', orgId)
-    .eq('user_id', userId);
+  const admin = createAdminClient();
+  const { data: targetProfile } = await admin
+    .from('profiles')
+    .select('email')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const { data, error } = await admin.rpc('remove_user_from_workspace', {
+    target_workspace_id: activeOrgId,
+    target_user_id: userId,
+    removed_by_user_id: user.id,
+    removal_reason: 'Removed by workspace admin',
+  });
 
   if (!error) {
-    await logAuditEvent({
-      orgId,
-      userId: user.id,
-      action: 'remove_member',
-      entityType: 'membership',
-      entityId: userId,
-    });
+    let email = (targetProfile as { email?: string | null } | null)?.email ?? null;
+    if (!email) {
+      const { data: authUser } = await admin.auth.admin.getUserById(userId);
+      email = authUser.user?.email ?? null;
+    }
+    if (email) {
+      await admin
+        .from('organisation_invites')
+        .update({ status: 'revoked', revoked_at: new Date().toISOString() })
+        .eq('workspace_id', activeOrgId)
+        .eq('invited_email', email)
+        .in('status', ['draft', 'sent']);
+
+      await admin
+        .from('organisation_invites')
+        .update({ status: 'revoked', revoked_at: new Date().toISOString() })
+        .eq('workspace_id', activeOrgId)
+        .eq('email', email)
+        .in('status', ['draft', 'sent']);
+    }
+
+    await Promise.all([
+      logAuditEvent({
+        orgId: activeOrgId,
+        userId: user.id,
+        action: 'admin_removed_user_from_organisation',
+        entityType: 'membership',
+        entityId: userId,
+        metadata: { result: data ?? null },
+      }),
+      trackProductEvent({
+        organisationId: activeOrgId,
+        userId: user.id,
+        eventType: 'member_removed',
+        moduleKey: 'members',
+        path: '/settings',
+        metadata: { memberUserId: userId },
+      }),
+    ]);
   }
 
   return { error: error?.message ?? null };
@@ -291,13 +459,23 @@ export async function disableMember(
     .eq('user_id', userId);
 
   if (!error) {
-    await logAuditEvent({
-      orgId,
-      userId: user.id,
-      action: 'disable_member',
-      entityType: 'membership',
-      entityId: userId,
-    });
+    await Promise.all([
+      logAuditEvent({
+        orgId,
+        userId: user.id,
+        action: 'disable_member',
+        entityType: 'membership',
+        entityId: userId,
+      }),
+      trackProductEvent({
+        organisationId: orgId,
+        userId: user.id,
+        eventType: 'member_disabled',
+        moduleKey: 'members',
+        path: '/settings',
+        metadata: { memberUserId: userId },
+      }),
+    ]);
   }
 
   return { error: error?.message ?? null };
@@ -324,13 +502,23 @@ export async function enableMember(
     .eq('user_id', userId);
 
   if (!error) {
-    await logAuditEvent({
-      orgId,
-      userId: user.id,
-      action: 'enable_member',
-      entityType: 'membership',
-      entityId: userId,
-    });
+    await Promise.all([
+      logAuditEvent({
+        orgId,
+        userId: user.id,
+        action: 'enable_member',
+        entityType: 'membership',
+        entityId: userId,
+      }),
+      trackProductEvent({
+        organisationId: orgId,
+        userId: user.id,
+        eventType: 'member_enabled',
+        moduleKey: 'members',
+        path: '/settings',
+        metadata: { memberUserId: userId },
+      }),
+    ]);
   }
 
   return { error: error?.message ?? null };
@@ -383,51 +571,8 @@ export async function forceLogoutAll(): Promise<{ error: string | null }> {
 export async function archiveBankAccount(
   bankAccountId: string,
 ): Promise<{ error: string | null }> {
-  await assertWriteAllowed();
-  const { orgId, role, user } = await getActiveOrg();
-  try {
-    assertCanPerform(role, 'update', 'banking');
-  } catch (e) {
-    return { error: e instanceof PermissionError ? e.message : 'Permission denied' };
-  }
-
-  const supabase = await createClient();
-
-  const { data: account, error: fetchErr } = await supabase
-    .from('bank_accounts')
-    .select('id, organisation_id, name, is_active')
-    .eq('id', bankAccountId)
-    .single();
-
-  if (fetchErr || !account) {
-    return { error: fetchErr?.message ?? 'Bank account not found' };
-  }
-
-  if (account.organisation_id !== orgId) {
-    return { error: 'Bank account does not belong to your organisation' };
-  }
-
-  if (!account.is_active) {
-    return { error: 'Bank account is already archived' };
-  }
-
-  const { error: updateErr } = await supabase
-    .from('bank_accounts')
-    .update({ is_active: false })
-    .eq('id', bankAccountId);
-
-  if (updateErr) return { error: updateErr.message };
-
-  await logAuditEvent({
-    orgId,
-    userId: user.id,
-    action: 'bank_account_archived',
-    entityType: 'bank_account',
-    entityId: bankAccountId,
-    metadata: { name: account.name },
-  });
-
-  return { error: null };
+  const result = await archiveBankAccountBanking(bankAccountId);
+  return { error: result.success ? null : result.error };
 }
 
 /* ------------------------------------------------------------------ */
@@ -554,7 +699,7 @@ export async function setMemberExpiry(
   expiresAt: string | null, // ISO date string or null to clear
 ): Promise<{ error: string | null }> {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { role, user } = await getActiveOrg();
   try { assertCanPerform(role, 'update', 'members'); }
   catch (e) { return { error: e instanceof PermissionError ? e.message : 'Only admins can set member expiry' }; }
 
@@ -564,6 +709,26 @@ export async function setMemberExpiry(
     .update({ expires_at: expiresAt })
     .eq('organisation_id', orgId)
     .eq('user_id', userId);
+  if (!error) {
+    await Promise.all([
+      logAuditEvent({
+        orgId,
+        userId: user.id,
+        action: 'set_member_expiry',
+        entityType: 'membership',
+        entityId: userId,
+        metadata: { expiresAt },
+      }),
+      trackProductEvent({
+        organisationId: orgId,
+        userId: user.id,
+        eventType: 'member_expiry_updated',
+        moduleKey: 'members',
+        path: '/settings',
+        metadata: { memberUserId: userId, expiresAt },
+      }),
+    ]);
+  }
 
   return { error: error?.message ?? null };
 }

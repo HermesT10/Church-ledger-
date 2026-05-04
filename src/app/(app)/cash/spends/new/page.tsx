@@ -8,7 +8,7 @@ export default async function NewSpendPage() {
 
   const [fundsRes, expenseAccountsRes] = await Promise.all([
     supabase.from('funds').select('id, name').eq('organisation_id', orgId).eq('is_active', true).order('name'),
-    supabase.from('accounts').select('id, code, name').eq('organisation_id', orgId).eq('type', 'expense').eq('is_active', true).order('code'),
+    supabase.from('accounts').select('id, code, name').eq('organisation_id', orgId).eq('type', 'expense').eq('is_active', true).eq('available_in_invoices', true).order('code'),
   ]);
 
   return (

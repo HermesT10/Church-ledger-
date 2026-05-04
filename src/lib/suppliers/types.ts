@@ -21,6 +21,8 @@ export interface SupplierWithStats extends SupplierRow {
   outstanding_pence: number;
   paid_this_year_pence: number;
   invoice_count: number;
+  overdue_count?: number;
+  last_payment_date?: string | null;
 }
 
 export interface SupplierInvoice {

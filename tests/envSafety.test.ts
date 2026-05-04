@@ -115,6 +115,8 @@ describe('Confirmation phrase matching', () => {
   it('supports multi-word phrases', () => {
     expect(isPhraseMatch('GENERATE DEMO DATA', 'GENERATE DEMO DATA')).toBe(true);
     expect(isPhraseMatch('CLEAR DEMO DATA', 'CLEAR DEMO DATA')).toBe(true);
+    expect(isPhraseMatch('DELETE DEMO', 'DELETE DEMO')).toBe(true);
+    expect(isPhraseMatch('RESET', 'RESET')).toBe(true);
     expect(isPhraseMatch('REMOVE', 'REMOVE')).toBe(true);
     expect(isPhraseMatch('LOGOUT', 'LOGOUT')).toBe(true);
   });
@@ -293,7 +295,7 @@ describe('Backup documentation (documentation)', () => {
 
 describe('Destructive actions with audit logging', () => {
   const AUDITED_ACTIONS = [
-    { action: 'clear_demo_data', file: 'demo-data/actions.ts' },
+    { action: 'delete_demo_data_requested', file: 'data-management/actions.ts' },
     { action: 'remove_member', file: 'settings/actions.ts' },
     { action: 'force_logout_all', file: 'settings/actions.ts' },
     { action: 'archive_supplier', file: 'bills/actions.ts' },
@@ -328,8 +330,8 @@ describe('Confirmation dialog usage (documentation)', () => {
   const DESTRUCTIVE_WITH_CONFIRM = [
     { action: 'Remove member', phrase: 'REMOVE (prod only)' },
     { action: 'Force logout all', phrase: 'LOGOUT (prod only)' },
-    { action: 'Generate demo data', phrase: 'GENERATE DEMO DATA (always)' },
-    { action: 'Clear demo data', phrase: 'CLEAR DEMO DATA (always)' },
+    { action: 'Reset financial data', phrase: 'RESET (data management)' },
+    { action: 'Delete legacy demo data', phrase: 'DELETE DEMO (data management)' },
   ];
 
   it('lists all actions that require typed confirmation', () => {

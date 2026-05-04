@@ -35,25 +35,33 @@ export async function getSuppliersWithStats(): Promise<{
   const supplierIds = (suppliers ?? []).map((s) => s.id);
   if (supplierIds.length === 0) return { data: [], error: null };
 
-  // Fetch all bills for these suppliers
-  const { data: bills } = await supabase
-    .from('bills')
-    .select('id, supplier_id, total_pence, status, bill_date')
-    .in('supplier_id', supplierIds);
+  const [{ data: bills }, { data: supplierExpenses }] = await Promise.all([
+    supabase
+      .from('bills')
+      .select('id, supplier_id, total_pence, status, bill_date, due_date')
+      .in('supplier_id', supplierIds),
+    supabase
+      .from('manual_transactions')
+      .select('id, supplier_id, amount_pence, status, transaction_date')
+      .eq('organisation_id', orgId)
+      .eq('type', 'expense')
+      .in('supplier_id', supplierIds),
+  ]);
 
   // Compute per-supplier stats
   const currentYear = new Date().getFullYear();
   const yearStart = `${currentYear}-01-01`;
 
+  const today = new Date().toISOString().slice(0, 10);
   const statsMap = new Map<
     string,
-    { outstanding: number; paidThisYear: number; invoiceCount: number }
+    { outstanding: number; paidThisYear: number; invoiceCount: number; overdueCount: number; lastPaymentDate: string | null }
   >();
 
   for (const bill of bills ?? []) {
     const sid = bill.supplier_id;
     if (!statsMap.has(sid)) {
-      statsMap.set(sid, { outstanding: 0, paidThisYear: 0, invoiceCount: 0 });
+      statsMap.set(sid, { outstanding: 0, paidThisYear: 0, invoiceCount: 0, overdueCount: 0, lastPaymentDate: null });
     }
     const entry = statsMap.get(sid)!;
     entry.invoiceCount += 1;
@@ -63,11 +71,28 @@ export async function getSuppliersWithStats(): Promise<{
     // Outstanding = draft + approved + posted (not yet paid)
     if (bill.status !== 'paid') {
       entry.outstanding += amount;
+      if (bill.due_date && bill.due_date < today) entry.overdueCount += 1;
     }
 
     // Paid this year
     if (bill.status === 'paid' && bill.bill_date >= yearStart) {
       entry.paidThisYear += amount;
+      entry.lastPaymentDate = entry.lastPaymentDate && entry.lastPaymentDate > bill.bill_date ? entry.lastPaymentDate : bill.bill_date;
+    }
+  }
+
+  for (const expense of supplierExpenses ?? []) {
+    if (!expense.supplier_id) continue;
+    if (!statsMap.has(expense.supplier_id)) {
+      statsMap.set(expense.supplier_id, { outstanding: 0, paidThisYear: 0, invoiceCount: 0, overdueCount: 0, lastPaymentDate: null });
+    }
+    const entry = statsMap.get(expense.supplier_id)!;
+    if (expense.status === 'posted' && expense.transaction_date >= yearStart) {
+      entry.paidThisYear += Number(expense.amount_pence);
+      entry.lastPaymentDate =
+        entry.lastPaymentDate && entry.lastPaymentDate > expense.transaction_date
+          ? entry.lastPaymentDate
+          : expense.transaction_date;
     }
   }
 
@@ -89,6 +114,8 @@ export async function getSuppliersWithStats(): Promise<{
       outstanding_pence: stats?.outstanding ?? 0,
       paid_this_year_pence: stats?.paidThisYear ?? 0,
       invoice_count: stats?.invoiceCount ?? 0,
+      overdue_count: stats?.overdueCount ?? 0,
+      last_payment_date: stats?.lastPaymentDate ?? null,
     };
   });
 
@@ -114,11 +141,18 @@ export async function getSupplier(
 
   if (error || !s) return { data: null, error: error?.message ?? 'Supplier not found.' };
 
-  // Fetch bills for this supplier
-  const { data: bills } = await supabase
-    .from('bills')
-    .select('id, total_pence, status, bill_date')
-    .eq('supplier_id', supplierId);
+  const [{ data: bills }, { data: supplierExpenses }] = await Promise.all([
+    supabase
+      .from('bills')
+      .select('id, total_pence, status, bill_date, due_date')
+      .eq('supplier_id', supplierId),
+    supabase
+      .from('manual_transactions')
+      .select('id, amount_pence, status, transaction_date')
+      .eq('organisation_id', orgId)
+      .eq('supplier_id', supplierId)
+      .eq('type', 'expense'),
+  ]);
 
   const currentYear = new Date().getFullYear();
   const yearStart = `${currentYear}-01-01`;
@@ -126,12 +160,29 @@ export async function getSupplier(
   let outstanding = 0;
   let paidThisYear = 0;
   let invoiceCount = 0;
+  let overdueCount = 0;
+  let lastPaymentDate: string | null = null;
+  const today = new Date().toISOString().slice(0, 10);
 
   for (const bill of bills ?? []) {
     invoiceCount += 1;
     const amount = Number(bill.total_pence);
-    if (bill.status !== 'paid') outstanding += amount;
-    if (bill.status === 'paid' && bill.bill_date >= yearStart) paidThisYear += amount;
+    if (bill.status !== 'paid') {
+      outstanding += amount;
+      if (bill.due_date && bill.due_date < today) overdueCount += 1;
+    }
+    if (bill.status === 'paid' && bill.bill_date >= yearStart) {
+      paidThisYear += amount;
+      lastPaymentDate = lastPaymentDate && lastPaymentDate > bill.bill_date ? lastPaymentDate : bill.bill_date;
+    }
+  }
+
+  for (const expense of supplierExpenses ?? []) {
+    if (expense.status === 'posted' && expense.transaction_date >= yearStart) {
+      paidThisYear += Number(expense.amount_pence);
+      lastPaymentDate =
+        lastPaymentDate && lastPaymentDate > expense.transaction_date ? lastPaymentDate : expense.transaction_date;
+    }
   }
 
   return {
@@ -151,6 +202,8 @@ export async function getSupplier(
       outstanding_pence: outstanding,
       paid_this_year_pence: paidThisYear,
       invoice_count: invoiceCount,
+      overdue_count: overdueCount,
+      last_payment_date: lastPaymentDate,
     },
     error: null,
   };
@@ -338,8 +391,14 @@ export async function archiveSupplier(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase
     .from('suppliers')
-    .update({ is_active: false })
-    .eq('id', id);
+    .update({
+      is_active: false,
+      is_archived: true,
+      archived_at: new Date().toISOString(),
+      archived_by: user.id,
+    })
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/suppliers/${id}?error=` + encodeURIComponent(error.message));
@@ -362,7 +421,7 @@ export async function archiveSupplier(formData: FormData) {
 
 export async function unarchiveSupplier(formData: FormData) {
   await assertWriteAllowed();
-  const { role } = await getActiveOrg();
+  const { orgId, role } = await getActiveOrg();
   const id = formData.get('id') as string;
 
   try {
@@ -374,8 +433,14 @@ export async function unarchiveSupplier(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase
     .from('suppliers')
-    .update({ is_active: true })
-    .eq('id', id);
+    .update({
+      is_active: true,
+      is_archived: false,
+      archived_at: null,
+      archived_by: null,
+    })
+    .eq('id', id)
+    .eq('organisation_id', orgId);
 
   if (error) {
     redirect(`/suppliers/${id}?error=` + encodeURIComponent(error.message));

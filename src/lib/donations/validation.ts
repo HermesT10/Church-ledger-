@@ -32,6 +32,7 @@ export interface DonationInput {
 export interface JournalLineOutput {
   account_id: string;
   fund_id: string | null;
+  income_stream_id?: string | null;
   description: string | null;
   debit_pence: number;
   credit_pence: number;
@@ -125,6 +126,7 @@ export function buildDonationJournalLines(params: {
   donationsIncomeAccountId: string;
   feeAccountId: string | null;
   fundId: string | null;
+  incomeStreamId?: string | null;
   description: string;
 }): JournalLineOutput[] {
   const {
@@ -135,6 +137,7 @@ export function buildDonationJournalLines(params: {
     donationsIncomeAccountId,
     feeAccountId,
     fundId,
+    incomeStreamId,
     description,
   } = params;
 
@@ -160,10 +163,11 @@ export function buildDonationJournalLines(params: {
     });
   }
 
-  // Cr Donations Income (gross amount, fund-tagged)
+  // Cr Donations Income (gross amount, fund-tagged; income stream is independent for analytics)
   lines.push({
     account_id: donationsIncomeAccountId,
     fund_id: fundId,
+    income_stream_id: incomeStreamId ?? null,
     description: `Donation income – ${description}`,
     debit_pence: 0,
     credit_pence: grossAmountPence,

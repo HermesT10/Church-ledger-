@@ -1,7 +1,11 @@
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { MONTH_KEYS, type MonthKey } from '@/lib/budgets/budgetMath';
-import { getCached, setCached } from '@/lib/cache';
+import {
+  getOrgReportCacheTag,
+  getReportScopeCacheTag,
+  runCachedQuery,
+} from '@/lib/cache';
 import { timedQuery } from '@/lib/perf';
 
 /* ------------------------------------------------------------------ */
@@ -26,6 +30,9 @@ export interface MonthlyActuals {
 
 /** Keyed by account_id. */
 export type ActualsMap = Record<string, MonthlyActuals>;
+
+type SerializedMonthlyActuals = Record<keyof MonthlyActuals, string>;
+type SerializedActualsMap = Record<string, SerializedMonthlyActuals>;
 
 /** Shape of a raw journal line used by the pure aggregation helper. */
 export interface RawJournalLine {
@@ -56,6 +63,41 @@ function emptyMonthlyActuals(): MonthlyActuals {
     m12_pence: 0n,
     ytd_pence: 0n,
   };
+}
+
+function serializeActualsMap(actuals: ActualsMap): SerializedActualsMap {
+  return Object.fromEntries(
+    Object.entries(actuals).map(([accountId, monthly]) => [
+      accountId,
+      Object.fromEntries(
+        Object.entries(monthly).map(([key, value]) => [key, value.toString()]),
+      ) as SerializedMonthlyActuals,
+    ]),
+  );
+}
+
+function deserializeActualsMap(actuals: SerializedActualsMap): ActualsMap {
+  return Object.fromEntries(
+    Object.entries(actuals).map(([accountId, monthly]) => {
+      const deserialized: MonthlyActuals = {
+        m01_pence: BigInt(monthly.m01_pence),
+        m02_pence: BigInt(monthly.m02_pence),
+        m03_pence: BigInt(monthly.m03_pence),
+        m04_pence: BigInt(monthly.m04_pence),
+        m05_pence: BigInt(monthly.m05_pence),
+        m06_pence: BigInt(monthly.m06_pence),
+        m07_pence: BigInt(monthly.m07_pence),
+        m08_pence: BigInt(monthly.m08_pence),
+        m09_pence: BigInt(monthly.m09_pence),
+        m10_pence: BigInt(monthly.m10_pence),
+        m11_pence: BigInt(monthly.m11_pence),
+        m12_pence: BigInt(monthly.m12_pence),
+        ytd_pence: BigInt(monthly.ytd_pence),
+      };
+
+      return [accountId, deserialized];
+    }),
+  );
 }
 
 /**
@@ -136,100 +178,109 @@ export async function getActualsByMonth(params: {
   // Auth check
   await getActiveOrg();
 
-  // Cache key: org + year + fund + sorted account IDs
   const accountsHash = accountIds ? accountIds.slice().sort().join(',') : 'all';
-  const cacheKey = `actuals:${organisationId}:${year}:${fundId ?? 'all'}:${accountsHash}`;
-  const cached = getCached<ActualsMap>(cacheKey);
-  if (cached) return { data: cached, error: null };
+  const cached = await runCachedQuery<{
+    data: SerializedActualsMap;
+    error: string | null;
+  }>({
+    keyParts: ['actuals', organisationId, String(year), fundId ?? 'all', accountsHash],
+    tags: [
+      getOrgReportCacheTag(organisationId),
+      getReportScopeCacheTag(organisationId, 'actuals'),
+    ],
+    revalidateSeconds: ACTUALS_CACHE_TTL_MS / 1000,
+    loader: () =>
+      timedQuery(`getActualsByMonth(${organisationId}, ${year})`, async () => {
+        const supabase = await createClient();
 
-  return timedQuery(`getActualsByMonth(${organisationId}, ${year})`, async () => {
-    const supabase = await createClient();
+        // 1. Fetch posted journal IDs for the org and year
+        const { data: journals, error: journalErr } = await supabase
+          .from('journals')
+          .select('id, journal_date')
+          .eq('organisation_id', organisationId)
+          .eq('status', 'posted')
+          .gte('journal_date', `${year}-01-01`)
+          .lte('journal_date', `${year}-12-31`);
 
-    // 1. Fetch posted journal IDs for the org and year
-    const { data: journals, error: journalErr } = await supabase
-      .from('journals')
-      .select('id, journal_date')
-      .eq('organisation_id', organisationId)
-      .eq('status', 'posted')
-      .gte('journal_date', `${year}-01-01`)
-      .lte('journal_date', `${year}-12-31`);
+        if (journalErr) {
+          return { data: {}, error: journalErr.message };
+        }
 
-    if (journalErr) {
-      return { data: {}, error: journalErr.message };
-    }
+        if (!journals || journals.length === 0) {
+          return { data: {}, error: null };
+        }
 
-    if (!journals || journals.length === 0) {
-      return { data: {}, error: null };
-    }
+        // Build a map of journal_id -> journal_date for month extraction
+        const journalDateMap: Record<string, string> = {};
+        const journalIds: string[] = [];
+        for (const j of journals) {
+          journalDateMap[j.id] = j.journal_date;
+          journalIds.push(j.id);
+        }
 
-    // Build a map of journal_id -> journal_date for month extraction
-    const journalDateMap: Record<string, string> = {};
-    const journalIds: string[] = [];
-    for (const j of journals) {
-      journalDateMap[j.id] = j.journal_date;
-      journalIds.push(j.id);
-    }
+        // 2. Fetch journal lines for those journals
+        // Add organisation_id filter early so the DB can use idx_jlines_org_account
+        let linesQuery = supabase
+          .from('journal_lines')
+          .select('account_id, fund_id, debit_pence, credit_pence, journal_id')
+          .eq('organisation_id', organisationId)
+          .in('journal_id', journalIds);
 
-    // 2. Fetch journal lines for those journals
-    // Add organisation_id filter early so the DB can use idx_jlines_org_account
-    let linesQuery = supabase
-      .from('journal_lines')
-      .select('account_id, fund_id, debit_pence, credit_pence, journal_id')
-      .eq('organisation_id', organisationId)
-      .in('journal_id', journalIds);
+        // Optional fund filter
+        if (fundId !== undefined && fundId !== null) {
+          linesQuery = linesQuery.eq('fund_id', fundId);
+        }
 
-    // Optional fund filter
-    if (fundId !== undefined && fundId !== null) {
-      linesQuery = linesQuery.eq('fund_id', fundId);
-    }
+        // Optional account filter
+        if (accountIds && accountIds.length > 0) {
+          linesQuery = linesQuery.in('account_id', accountIds);
+        }
 
-    // Optional account filter
-    if (accountIds && accountIds.length > 0) {
-      linesQuery = linesQuery.in('account_id', accountIds);
-    }
+        const { data: lines, error: linesErr } = await linesQuery;
 
-    const { data: lines, error: linesErr } = await linesQuery;
+        if (linesErr) {
+          return { data: {}, error: linesErr.message };
+        }
 
-    if (linesErr) {
-      return { data: {}, error: linesErr.message };
-    }
+        if (!lines || lines.length === 0) {
+          return { data: {}, error: null };
+        }
 
-    if (!lines || lines.length === 0) {
-      return { data: {}, error: null };
-    }
+        // 3. Collect unique account IDs from lines and fetch their types
+        const uniqueAccountIds = [...new Set(lines.map((l) => l.account_id))];
 
-    // 3. Collect unique account IDs from lines and fetch their types
-    const uniqueAccountIds = [...new Set(lines.map((l) => l.account_id))];
+        const { data: accounts, error: accErr } = await supabase
+          .from('accounts')
+          .select('id, type')
+          .in('id', uniqueAccountIds);
 
-    const { data: accounts, error: accErr } = await supabase
-      .from('accounts')
-      .select('id, type')
-      .in('id', uniqueAccountIds);
+        if (accErr) {
+          return { data: {}, error: accErr.message };
+        }
 
-    if (accErr) {
-      return { data: {}, error: accErr.message };
-    }
+        const accountTypes: Record<string, string> = {};
+        for (const acc of accounts ?? []) {
+          accountTypes[acc.id] = acc.type;
+        }
 
-    const accountTypes: Record<string, string> = {};
-    for (const acc of accounts ?? []) {
-      accountTypes[acc.id] = acc.type;
-    }
+        // 4. Transform lines into RawJournalLine format (attach journal_date)
+        const rawLines: RawJournalLine[] = lines.map((l) => ({
+          account_id: l.account_id,
+          fund_id: l.fund_id,
+          debit_pence: l.debit_pence,
+          credit_pence: l.credit_pence,
+          journal_date: journalDateMap[l.journal_id],
+        }));
 
-    // 4. Transform lines into RawJournalLine format (attach journal_date)
-    const rawLines: RawJournalLine[] = lines.map((l) => ({
-      account_id: l.account_id,
-      fund_id: l.fund_id,
-      debit_pence: l.debit_pence,
-      credit_pence: l.credit_pence,
-      journal_date: journalDateMap[l.journal_id],
-    }));
+        // 5. Aggregate
+        const result = aggregateActuals(rawLines, accountTypes);
 
-    // 5. Aggregate
-    const result = aggregateActuals(rawLines, accountTypes);
-
-    // Store in cache
-    setCached(cacheKey, result, ACTUALS_CACHE_TTL_MS);
-
-    return { data: result, error: null };
+        return { data: serializeActualsMap(result), error: null };
+      }),
   });
+
+  return {
+    data: deserializeActualsMap(cached.data),
+    error: cached.error,
+  };
 }

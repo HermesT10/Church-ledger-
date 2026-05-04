@@ -7,6 +7,7 @@ import {
   getGiftAidClaimPreview,
   createGiftAidClaim,
   exportGiftAidClaimCsv,
+  getGiftAidExportDownloadUrl,
 } from '@/lib/giftaid/actions';
 import type { ClaimPreviewResult } from '@/lib/giftaid/eligibility';
 import { toast } from 'sonner';
@@ -74,6 +75,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
 
   // Post-creation state
   const [createdClaimId, setCreatedClaimId] = useState<string | null>(null);
+  const [createdExportId, setCreatedExportId] = useState<string | null>(null);
 
   /* ---- Preview ---- */
   const handlePreview = () => {
@@ -116,6 +118,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
       }
       if (data) {
         setCreatedClaimId(data.claimId);
+        setCreatedExportId(null);
         toast.success('Gift Aid claim created successfully.');
       }
     });
@@ -126,24 +129,32 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
     if (!createdClaimId) return;
 
     startTransition(async () => {
-      const { data, error } = await exportGiftAidClaimCsv({
-        claimId: createdClaimId,
-      });
-      if (error || !data) {
-        toast.error(error ?? 'Failed to export CSV.');
+      const exportResult = createdExportId
+        ? await getGiftAidExportDownloadUrl({ exportId: createdExportId })
+        : await exportGiftAidClaimCsv({
+            claimId: createdClaimId,
+          }).then(async (result) => {
+            if (result.error || !result.data) {
+              return { data: null, error: result.error };
+            }
+            setCreatedExportId(result.data.exportId);
+            return getGiftAidExportDownloadUrl({
+              exportId: result.data.exportId,
+            });
+          });
+
+      if (exportResult.error || !exportResult.data) {
+        toast.error(exportResult.error ?? 'Failed to download schedule.');
         return;
       }
 
-      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `gift-aid-claim-${createdClaimId.slice(0, 8)}.csv`;
+      link.href = exportResult.data.url;
+      link.download = exportResult.data.fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success('CSV downloaded.');
+      toast.success('HMRC Gift Aid schedule downloaded.');
     });
   };
 
@@ -152,7 +163,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
     return (
       <Card>
         <CardContent className="py-12 text-center space-y-4">
-          <CheckCircle className="mx-auto h-12 w-12 text-green-600" />
+          <CheckCircle className="mx-auto h-12 w-12 text-success" />
           <h2 className="text-xl font-semibold">Claim Created</h2>
           <p className="text-sm text-muted-foreground">
             Your Gift Aid claim has been created with{' '}
@@ -162,7 +173,13 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
           <div className="flex items-center justify-center gap-3 pt-2">
             <Button onClick={handleExportCsv} disabled={isPending}>
               <Download size={14} className="mr-1" />
-              {isPending ? 'Exporting…' : 'Export CSV'}
+              {isPending
+                ? createdExportId
+                  ? 'Downloading...'
+                  : 'Exporting...'
+                : createdExportId
+                  ? 'Download HMRC Schedule'
+                  : 'Export HMRC Schedule'}
             </Button>
             <Button asChild variant="outline">
               <Link href={`/gift-aid/${createdClaimId}`}>
@@ -241,7 +258,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
             <Card>
               <CardContent className="pt-6">
                 <p className="text-sm text-muted-foreground">Claimable (25%)</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-2xl font-bold text-success">
                   {formatPounds(preview.totals.claimableTotalPence)}
                 </p>
               </CardContent>
@@ -266,7 +283,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
             preview.ineligibleDonations.length > 0 && (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+                  <AlertTriangle className="mx-auto h-10 w-10 text-warning" />
                   <p className="mt-3 text-sm text-muted-foreground">
                     All {preview.ineligibleDonations.length} donation(s) in this
                     range are ineligible for Gift Aid. See details below.
@@ -307,7 +324,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
                           <TableCell className="text-right">
                             {formatPounds(d.amountPence)}
                           </TableCell>
-                          <TableCell className="text-right font-medium text-green-600">
+                          <TableCell className="text-right font-medium text-success">
                             {formatPounds(d.claimablePence)}
                           </TableCell>
                         </TableRow>
@@ -322,7 +339,7 @@ export function NewClaimClient({ orgId }: { orgId: string }) {
                     <p className="text-sm text-muted-foreground">
                       {preview.totals.eligibleCount} donation(s) eligible
                     </p>
-                    <p className="text-2xl font-bold text-green-600">
+                    <p className="text-2xl font-bold text-success">
                       {formatPounds(preview.totals.claimableTotalPence)}{' '}
                       <span className="text-sm font-normal text-muted-foreground">
                         claimable

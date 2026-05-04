@@ -3,7 +3,7 @@ import { MONTH_KEYS } from '@/lib/budgets/budgetMath';
 import type { AccountRef, BudgetGridLine } from '@/lib/budgets/types';
 import type { ActualsMap, MonthlyActuals } from '@/lib/reports/actuals';
 import { buildBudgetVsActual } from '@/lib/reports/budgetVsActual';
-import { detectOverspendAlerts } from '@/lib/alerts/overspend';
+import { detectOverspendAlerts } from '@/lib/alerts/overspendDetection';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers (mirrors budgetVsActual test helpers)                      */

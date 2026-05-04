@@ -31,11 +31,16 @@ export default async function CollectionsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cash Collections</h2>
         {canEdit && (
-          <Button asChild size="sm">
-            <Link href="/cash/collections/new">
-              <Plus size={14} className="mr-1" /> New Collection
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href="/cash/collection-submissions">Portal submissions</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href="/cash/collections/new">
+                <Plus size={14} className="mr-1" /> New Collection
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
 

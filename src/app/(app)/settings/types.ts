@@ -2,6 +2,21 @@
 
 export interface OrgSettings {
   organisationName: string;
+  legalName: string;
+  charityNumber: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  county: string;
+  postcode: string;
+  country: string;
+  contactEmail: string;
+  contactPhone: string;
+  websiteUrl: string;
+  logoUrl: string;
+  baseCurrency: string;
+  reportBrandName: string;
+  reportFooterText: string;
   overspendAmountPence: number;
   overspendPercent: number;
   fiscalYearStartMonth: number;
@@ -41,7 +56,7 @@ export interface MemberRow {
   fullName: string | null;
   email: string | null;
   role: string;
-  status: 'invited' | 'active' | 'disabled';
+  status: 'invited' | 'active' | 'disabled' | 'suspended' | 'removed';
   createdAt: string;
   joinedAt: string | null;
   expiresAt: string | null;

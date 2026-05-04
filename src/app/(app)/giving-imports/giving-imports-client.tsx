@@ -34,7 +34,6 @@ interface BankAccountOption {
 }
 
 interface Props {
-  orgId: string;
   imports: GivingImportSummary[];
   activeProviders: string[];
   bankAccounts: BankAccountOption[];
@@ -46,7 +45,7 @@ const ALL_PROVIDERS = ['gocardless', 'sumup', 'izettle'] as const;
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function GivingImportsClient({ orgId, imports, activeProviders, bankAccounts }: Props) {
+export function GivingImportsClient({ imports, activeProviders, bankAccounts }: Props) {
   const router = useRouter();
   const [selectedProvider, setSelectedProvider] = useState<string>(
     activeProviders[0] ?? 'gocardless'
@@ -98,7 +97,7 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
         toast.error(msg);
       }
     });
-  }, [file, selectedProvider, router]);
+  }, [bankAccountId, file, selectedProvider, router]);
 
   const handleReset = useCallback(() => {
     setFile(null);
@@ -106,15 +105,15 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
   }, []);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Imports"
           value={totalImports}
           subtitle="Across all providers"
           href="/giving-imports"
-          gradient="bg-gradient-to-br from-violet-500 to-violet-700"
+          tint="violet"
           icon={<Upload size={20} />}
         />
         <StatCard
@@ -122,7 +121,7 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
           value={totalInserted}
           subtitle="Donation transactions"
           href="/giving-imports"
-          gradient="bg-gradient-to-br from-emerald-500 to-emerald-700"
+          tint="emerald"
           icon={<CheckCircle2 size={20} />}
         />
         <StatCard
@@ -130,13 +129,13 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
           value={totalJournals}
           subtitle="Posted automatically"
           href="/journals"
-          gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+          tint="blue"
           icon={<BookOpen size={20} />}
         />
       </div>
 
       {/* Provider tabs */}
-      <div className="flex gap-2 border-b pb-2">
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-card">
         {ALL_PROVIDERS.map((p) => {
           const isActive = activeProviders.includes(p);
           const isSelected = selectedProvider === p;
@@ -148,7 +147,7 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
                 setResult(null);
               }}
               disabled={!isActive}
-              className={`px-4 py-2 text-sm rounded-t-md transition-colors ${
+              className={`rounded-xl px-4 py-2 text-sm transition-colors ${
                 isSelected
                   ? 'bg-primary text-primary-foreground font-medium'
                   : isActive
@@ -167,15 +166,15 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
 
       {/* Upload section */}
       {!result ? (
-        <Card className="border shadow-sm rounded-2xl">
-          <CardHeader>
+        <Card className="gap-0 overflow-hidden rounded-3xl border-border/70 bg-card shadow-card">
+          <CardHeader className="border-b border-border/60 px-5 pb-4 pt-5">
             <CardTitle>Import {PROVIDER_LABELS[selectedProvider] ?? selectedProvider} CSV</CardTitle>
             <CardDescription>
               Upload a CSV export from {PROVIDER_LABELS[selectedProvider] ?? selectedProvider}.
               Columns will be auto-detected. Duplicate rows are automatically skipped.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 p-5">
             <div className="space-y-1.5">
               <Label htmlFor="csvFile">CSV File</Label>
               <Input
@@ -199,7 +198,7 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
                   id="bankAccount"
                   value={bankAccountId}
                   onChange={(e) => setBankAccountId(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">No payout journals</option>
                   {bankAccounts.map((ba) => (
@@ -220,37 +219,37 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
         </Card>
       ) : (
         /* Results */
-        <Card className="border shadow-sm rounded-2xl">
-          <CardHeader>
+        <Card className="gap-0 overflow-hidden rounded-3xl border-border/70 bg-card shadow-card">
+          <CardHeader className="border-b border-border/60 px-5 pb-4 pt-5">
             <CardTitle>Import Results</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">Total Rows</p>
-                <p className="text-2xl font-semibold">{result.total_rows}</p>
+          <CardContent className="space-y-4 p-5">
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+              <div className="rounded-2xl bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Total Rows</p>
+                <p className="mt-1 text-xl font-semibold">{result.total_rows}</p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Inserted</p>
-                <p className="text-2xl font-semibold text-green-600">
+              <div className="rounded-2xl bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Inserted</p>
+                <p className="mt-1 text-xl font-semibold text-success">
                   {result.inserted_count}
                 </p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Skipped</p>
-                <p className="text-2xl font-semibold text-yellow-600">
+              <div className="rounded-2xl bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Skipped</p>
+                <p className="mt-1 text-xl font-semibold text-warning">
                   {result.skipped_count}
                 </p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Errors</p>
-                <p className="text-2xl font-semibold text-red-600">
+              <div className="rounded-2xl bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Errors</p>
+                <p className="mt-1 text-xl font-semibold text-danger">
                   {result.error_count}
                 </p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Journals</p>
-                <p className="text-2xl font-semibold text-blue-600">
+              <div className="rounded-2xl bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Journals</p>
+                <p className="mt-1 text-xl font-semibold text-info">
                   {result.journals_created}
                 </p>
               </div>
@@ -283,16 +282,16 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
       )}
 
       {/* Import history */}
-      <Card className="border shadow-sm rounded-2xl">
-        <CardHeader>
+      <Card className="gap-0 overflow-hidden rounded-3xl border-border/70 bg-card shadow-card">
+        <CardHeader className="border-b border-border/60 px-5 pb-4 pt-5">
           <CardTitle>Import History — {PROVIDER_LABELS[selectedProvider] ?? selectedProvider}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-5">
           {filteredImports.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-muted/35 hover:bg-muted/35">
                     <TableHead>Date Range</TableHead>
                     <TableHead>File</TableHead>
                     <TableHead className="text-right">Inserted</TableHead>
@@ -312,13 +311,13 @@ export function GivingImportsClient({ orgId, imports, activeProviders, bankAccou
                       <TableCell className="max-w-[200px] truncate text-sm">
                         {imp.file_name ?? '—'}
                       </TableCell>
-                      <TableCell className="text-right font-mono">
+                      <TableCell className="text-right tabular-nums">
                         {imp.inserted_count}
                       </TableCell>
-                      <TableCell className="text-right font-mono">
+                      <TableCell className="text-right tabular-nums">
                         {imp.skipped_count}
                       </TableCell>
-                      <TableCell className="text-right font-mono">
+                      <TableCell className="text-right tabular-nums">
                         {imp.journals_created}
                       </TableCell>
                       <TableCell>

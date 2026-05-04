@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { DashboardFundBalance } from '@/lib/reports/types';
+import { DashboardWidgetCard } from './dashboard-widget-card';
+import { cn } from '@/lib/utils';
 
 function fmtPounds(pence: number): string {
   return '£' + (Math.abs(pence) / 100).toLocaleString('en-GB', {
@@ -13,60 +13,79 @@ function fmtPounds(pence: number): string {
 }
 
 const TYPE_BADGE: Record<string, string> = {
-  restricted: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
-  unrestricted: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  designated: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  restricted: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300',
+  unrestricted: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300',
+  designated: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300',
 };
 
 export function FundBalancesWidget({ data }: { data: DashboardFundBalance[] }) {
   if (data.length === 0) return null;
+  const visibleFunds = data.slice(0, 5);
+  const restrictedCount = data.filter((fund) => fund.fundType === 'restricted').length;
+  const overspentCount = data.filter((fund) => fund.isOverspent).length;
+  const totalBalancePence = data.reduce((sum, fund) => sum + fund.balancePence, 0);
 
   return (
-    <Card className="rounded-2xl bg-violet-100/65 border-violet-200/50 shadow-sm dark:bg-violet-950/18 dark:border-violet-800/18">
-      <CardHeader className="pb-2 pt-5 px-5">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold">Fund Balances</CardTitle>
-          <Link
-            href="/funds"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            View all
-          </Link>
+    <DashboardWidgetCard title="Fund balances" href="/funds" tint="violet" contentClassName="space-y-4">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-2xl bg-muted/35 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Funds</p>
+          <p className="mt-1 text-sm font-semibold tabular-nums">{data.length}</p>
         </div>
-      </CardHeader>
-      <CardContent className="px-5 pb-4">
-        <div className="space-y-2.5">
-          {data.slice(0, 6).map((f) => (
-            <div key={f.fundId} className="flex items-center gap-3">
-              <Badge
-                variant="secondary"
-                className={`text-[10px] px-1.5 py-0 shrink-0 ${TYPE_BADGE[f.fundType] ?? ''}`}
+        <div className="rounded-2xl bg-muted/35 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Restricted</p>
+          <p className="mt-1 text-sm font-semibold tabular-nums">{restrictedCount}</p>
+        </div>
+        <div className="rounded-2xl bg-muted/35 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Overspent</p>
+          <p className={cn('mt-1 text-sm font-semibold tabular-nums', overspentCount > 0 && 'text-danger')}>{overspentCount}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border/70">
+        <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground">Total fund balance</p>
+          <p className="text-sm font-semibold tabular-nums">{totalBalancePence < 0 ? '-' : ''}{fmtPounds(totalBalancePence)}</p>
+        </div>
+        <div className="divide-y divide-border/60">
+          {visibleFunds.map((f) => (
+            <div key={f.fundId} className="flex items-center gap-3 px-3 py-2.5">
+              <span className={cn('h-2 w-2 rounded-full bg-primary/50', f.isOverspent && 'bg-danger')} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{f.fundName}</p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className={cn('px-1.5 py-0 text-[10px]', TYPE_BADGE[f.fundType] ?? '')}
+                  >
+                    {f.fundType.charAt(0).toUpperCase() + f.fundType.slice(1)}
+                  </Badge>
+                  {f.isOverspent ? (
+                    <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">
+                      Overspent
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+              <span
+                className={cn(
+                  'shrink-0 text-sm font-semibold tabular-nums',
+                  f.isOverspent && 'text-danger',
+                )}
               >
-                {f.fundType.charAt(0).toUpperCase() + f.fundType.slice(1)}
-              </Badge>
-              <span className="flex-1 text-sm truncate">{f.fundName}</span>
-              <span className={`text-sm font-medium tabular-nums ${
-                f.isOverspent ? 'text-rose-600 dark:text-rose-400' : ''
-              }`}>
-                {f.balancePence < 0 ? '-' : ''}{fmtPounds(f.balancePence)}
+                {f.balancePence < 0 ? '-' : ''}
+                {fmtPounds(f.balancePence)}
               </span>
-              {f.isOverspent && (
-                <Badge variant="destructive" className="text-[10px] px-1.5 py-0 shrink-0">
-                  Overspent
-                </Badge>
-              )}
             </div>
           ))}
         </div>
-        {data.length > 6 && (
-          <Link
-            href="/funds"
-            className="block mt-3 pt-2 border-t border-violet-200/50 dark:border-violet-800/18 text-xs text-muted-foreground hover:text-foreground transition-colors text-center"
-          >
-            +{data.length - 6} more funds
-          </Link>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {data.length > visibleFunds.length ? (
+        <p className="text-xs text-muted-foreground">
+          +{data.length - visibleFunds.length} more funds available in the full funds workspace.
+        </p>
+      ) : null}
+    </DashboardWidgetCard>
   );
 }

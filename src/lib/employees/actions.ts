@@ -2,6 +2,7 @@
 
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { assertCanPerform, PermissionError } from '@/lib/permissions';
 import { assertWriteAllowed } from '@/lib/demo';
 import { logAuditEvent } from '@/lib/audit';
@@ -155,6 +156,7 @@ export async function updateEmployee(
 
 export async function archiveEmployee(
   employeeId: string,
+  reason?: string,
 ): Promise<{ success: boolean; error: string | null }> {
   await assertWriteAllowed();
   const { orgId, role: userRole, user } = await getActiveOrg();
@@ -168,8 +170,15 @@ export async function archiveEmployee(
   const supabase = await createClient();
   const { error } = await supabase
     .from('employees')
-    .update({ is_active: false })
-    .eq('id', employeeId);
+    .update({
+      is_active: false,
+      status: 'archived',
+      archived_at: new Date().toISOString(),
+      archived_by: user.id,
+      archive_reason: reason?.trim() || null,
+    })
+    .eq('id', employeeId)
+    .eq('organisation_id', orgId);
 
   if (error) return { success: false, error: error.message };
 
@@ -179,6 +188,7 @@ export async function archiveEmployee(
     action: 'archive_employee',
     entityType: 'employee',
     entityId: employeeId,
+    metadata: { reason: reason?.trim() || null },
   });
 
   return { success: true, error: null };
@@ -199,9 +209,123 @@ export async function unarchiveEmployee(
   const supabase = await createClient();
   const { error } = await supabase
     .from('employees')
-    .update({ is_active: true })
+    .update({
+      is_active: true,
+      status: 'active',
+      archived_at: null,
+      archived_by: null,
+      archive_reason: null,
+    })
     .eq('id', employeeId);
 
   if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}
+
+export interface EmployeeDeleteDependencyPreview {
+  exists: boolean;
+  total: number;
+  counts: Record<string, number>;
+  canDelete: boolean;
+}
+
+function normalizeDependencyPreview(payload: unknown): EmployeeDeleteDependencyPreview {
+  const raw = (payload ?? {}) as Partial<EmployeeDeleteDependencyPreview>;
+  const counts = raw.counts && typeof raw.counts === 'object' && !Array.isArray(raw.counts)
+    ? Object.fromEntries(
+        Object.entries(raw.counts as Record<string, unknown>).map(([key, value]) => [
+          key,
+          Number(value ?? 0),
+        ]),
+      )
+    : {};
+  return {
+    exists: Boolean(raw.exists),
+    total: Number(raw.total ?? 0),
+    counts,
+    canDelete: Boolean(raw.canDelete),
+  };
+}
+
+export async function getEmployeeDeleteDependencyPreview(
+  employeeId: string,
+): Promise<{ data: EmployeeDeleteDependencyPreview | null; error: string | null }> {
+  const { orgId, role: userRole } = await getActiveOrg();
+
+  try {
+    assertCanPerform(userRole, 'delete', 'payroll');
+  } catch (e) {
+    return { data: null, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const admin = createAdminClient();
+  const { data: employee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', employeeId)
+    .eq('organisation_id', orgId)
+    .maybeSingle();
+
+  if (!employee) {
+    return { data: null, error: 'Employee not found.' };
+  }
+
+  const { data, error } = await admin.rpc('get_employee_delete_dependency_preview', {
+    target_employee_id: employeeId,
+  });
+
+  if (error) return { data: null, error: error.message };
+  return { data: normalizeDependencyPreview(data), error: null };
+}
+
+export async function deleteEmployeeIfSafe(
+  employeeId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { orgId, role: userRole, user } = await getActiveOrg();
+
+  try {
+    assertCanPerform(userRole, 'delete', 'payroll');
+  } catch (e) {
+    return { success: false, error: e instanceof PermissionError ? e.message : 'Permission denied.' };
+  }
+
+  const admin = createAdminClient();
+  const { data: employee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', employeeId)
+    .eq('organisation_id', orgId)
+    .maybeSingle();
+
+  if (!employee) {
+    return { success: false, error: 'Employee not found.' };
+  }
+
+  const preview = await getEmployeeDeleteDependencyPreview(employeeId);
+  if (preview.error) return { success: false, error: preview.error };
+  if (!preview.data?.canDelete) {
+    return {
+      success: false,
+      error: `This staff member has ${preview.data?.total ?? 0} linked record(s). Archive them instead.`,
+    };
+  }
+
+  const { error } = await admin
+    .from('employees')
+    .delete()
+    .eq('id', employeeId)
+    .eq('organisation_id', orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  await logAuditEvent({
+    orgId,
+    userId: user.id,
+    action: 'delete_employee',
+    entityType: 'employee',
+    entityId: employeeId,
+  });
+
   return { success: true, error: null };
 }

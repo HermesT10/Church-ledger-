@@ -34,9 +34,9 @@ export default async function ImportPage({
     <div className="p-6 space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Import CSV</h1>
+          <h1 className="text-2xl font-bold">Upload Statement</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Import transactions into <strong>{bankAccount.name}</strong>
+            Upload a CSV or XLSX statement into <strong>{bankAccount.name}</strong>
           </p>
         </div>
         <Button asChild variant="outline">
@@ -45,7 +45,6 @@ export default async function ImportPage({
       </div>
 
       <ImportForm
-        orgId={orgId}
         bankAccountId={bankAccountId}
         bankAccountName={bankAccount.name}
       />

@@ -1,5 +1,62 @@
 /* Cash Management types (shared, not a server action file) */
 
+export type CashCollectionSubmissionStatus =
+  | 'draft'
+  | 'submitted'
+  | 'reviewed'
+  | 'banked'
+  | 'reconciled'
+  | 'rejected';
+
+export type CashCollectionSubmissionType =
+  | 'service'
+  | 'event'
+  | 'cafe'
+  | 'offering'
+  | 'other';
+
+export interface CashCollectionSubmissionRow {
+  id: string;
+  workspaceId: string;
+  submittedBy: string;
+  submitterName: string | null;
+  collectionDate: string;
+  amountPence: number;
+  detail: string;
+  signedBy: string;
+  collectionType: CashCollectionSubmissionType | null;
+  fundId: string | null;
+  fundName: string | null;
+  incomeStreamId: string | null;
+  incomeStreamName: string | null;
+  countedBy: string | null;
+  secondCounter: string | null;
+  notes: string | null;
+  attachmentUrl: string | null;
+  attachmentPath: string | null;
+  status: CashCollectionSubmissionStatus;
+  reviewedBy: string | null;
+  reviewerName: string | null;
+  reviewedAt: string | null;
+  adminNotes: string | null;
+  linkedCashBatchId: string | null;
+  linkedBankTransactionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PortalCashCollectionFormOptions {
+  signedBy: string;
+  funds: { id: string; name: string }[];
+  incomeStreams: {
+    id: string;
+    code: string;
+    name: string;
+    defaultFundId: string | null;
+    defaultIncomeAccountId: string | null;
+  }[];
+}
+
 /* ------------------------------------------------------------------ */
 /*  Cash Collections                                                   */
 /* ------------------------------------------------------------------ */

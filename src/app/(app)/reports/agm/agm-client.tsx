@@ -21,6 +21,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { TrusteePackPanel } from '@/components/reports/trustee-packs';
+import type { TrusteePack } from '@/lib/reports/trustee-packs/types';
 import { Loader2 } from 'lucide-react';
 
 function p(pence: number): string {
@@ -33,13 +35,14 @@ function p(pence: number): string {
 
 interface Props {
   initialData: SAGMReport | null;
+  initialPack?: TrusteePack | null;
   orgId: string;
   role: string;
   defaultYear: number;
   error?: string | null;
 }
 
-export function AGMClient({ initialData, orgId, role, defaultYear, error }: Props) {
+export function AGMClient({ initialData, initialPack, orgId, defaultYear, error }: Props) {
   const [report, setReport] = useState<SAGMReport | null>(initialData);
   const [year, setYear] = useState(defaultYear);
   const [loading, setLoading] = useState(false);
@@ -101,6 +104,8 @@ export function AGMClient({ initialData, orgId, role, defaultYear, error }: Prop
 
       {report && (
         <div className="space-y-8">
+          <TrusteePackPanel pack={initialPack ?? null} />
+
           {/* Key Financial Summary */}
           <section>
             <h2 className="text-lg font-semibold mb-4">

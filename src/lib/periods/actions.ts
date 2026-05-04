@@ -178,3 +178,52 @@ export async function isDateInLockedPeriod(
 
   return (data?.length ?? 0) > 0;
 }
+
+export async function assertDateNotInLockedPeriod(
+  postingDate: string,
+  context = 'post into the ledger',
+): Promise<{ success: boolean; error: string | null }> {
+  const locked = await isDateInLockedPeriod(postingDate);
+
+  if (locked) {
+    return {
+      success: false,
+      error: `Cannot ${context} inside a locked financial period. Post a reversal or adjustment in an open period instead.`,
+    };
+  }
+
+  return { success: true, error: null };
+}
+
+export async function requestLockedPeriodOverride(params: {
+  periodId: string;
+  context: string;
+  reason: string;
+  expiresAt?: string | null;
+}): Promise<{ success: boolean; error: string | null }> {
+  await assertWriteAllowed();
+  const { orgId, role, user } = await getActiveOrg();
+
+  if (role !== 'admin') {
+    return { success: false, error: 'Only admins can create locked-period overrides.' };
+  }
+
+  if (params.reason.trim().length < 10) {
+    return { success: false, error: 'An override reason of at least 10 characters is required.' };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('locked_period_overrides').insert({
+    workspace_id: orgId,
+    financial_period_id: params.periodId,
+    context: params.context,
+    reason: params.reason.trim(),
+    requested_by: user.id,
+    approved_by: user.id,
+    approved_at: new Date().toISOString(),
+    expires_at: params.expiresAt ?? null,
+  });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}

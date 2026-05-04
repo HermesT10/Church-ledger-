@@ -12,11 +12,16 @@ import {
 
 const VALID_DONOR = {
   full_name: 'John Smith',
+  first_name: 'John',
+  last_name: 'Smith',
+  house_name_or_number: '123',
   address: '123 Church Lane',
   postcode: 'AB1 2CD',
 };
 
 const ACTIVE_DECLARATION: EligibilityDeclaration = {
+  id: 'decl-1',
+  status: 'active',
   start_date: '2024-01-01',
   end_date: null,
   is_active: true,
@@ -93,6 +98,8 @@ describe('buildClaimPreview', () => {
     expect(result.ineligibleDonations).toHaveLength(1);
     expect(result.ineligibleDonations[0].donationId).toBe('don-2');
     expect(result.ineligibleDonations[0].reason).toContain('No donor linked');
+    expect(result.ineligibleDonations[0].status).toBe('unmatched');
+    expect(result.ineligibleDonations[0].issues[0]?.code).toBe('missing_donor');
     expect(result.totals.eligibleCount).toBe(2);
     expect(result.totals.eligibleAmountPence).toBe(5000);
     expect(result.totals.claimableTotalPence).toBe(500 + 750); // 2000*0.25 + 3000*0.25
@@ -127,7 +134,14 @@ describe('buildClaimPreview', () => {
       makeDonation({ id: 'don-1', donor: null }),
       makeDonation({
         id: 'don-2',
-        donor: { full_name: 'Jane', address: null, postcode: null },
+        donor: {
+          full_name: 'Jane',
+          first_name: 'Jane',
+          last_name: null,
+          house_name_or_number: null,
+          address: null,
+          postcode: null,
+        },
       }),
     ];
     const result = buildClaimPreview(donations, START, END);

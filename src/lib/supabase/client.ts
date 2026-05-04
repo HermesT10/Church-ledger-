@@ -1,10 +1,12 @@
 'use client';
 
 import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserEnv } from '@/lib/env';
 
 export function createClient() {
+  const env = getSupabaseBrowserEnv();
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    env.url,
+    env.anonKey,
   );
 }

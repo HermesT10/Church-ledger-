@@ -3,6 +3,10 @@ import { notFound } from 'next/navigation';
 import { getActiveOrg } from '@/lib/org';
 import { createClient } from '@/lib/supabase/server';
 import { BillForm } from '../bill-form';
+import { PageShell } from '@/components/page-shell';
+import { PageHeader } from '@/components/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Button } from '@/components/ui/button';
 
 export default async function BillDetailPage({
   params,
@@ -42,6 +46,7 @@ export default async function BillDetailPage({
       .select('id, code, name')
       .eq('organisation_id', orgId)
       .eq('is_active', true)
+      .eq('available_in_invoices', true)
       .in('type', ['expense'])
       .order('code'),
     supabase
@@ -59,24 +64,23 @@ export default async function BillDetailPage({
     (bill.status === 'draft' || bill.status === 'approved');
 
   return (
-    <div className="p-6 max-w-4xl space-y-6">
-      <div>
-        <Link
-          href="/bills"
-          className="text-sm text-muted-foreground hover:underline"
-        >
-          &larr; Back to Invoices
-        </Link>
-        <h1 className="text-2xl font-bold mt-2">
-          {bill.status === 'draft' && canEdit
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title={
+          bill.status === 'draft' && canEdit
             ? 'Edit Invoice'
-            : `Invoice ${bill.bill_number || id.slice(0, 8)}`}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {(bill.suppliers as { name: string } | null)?.name ?? 'Unknown supplier'}{' '}
-          — {bill.bill_date}
-        </p>
-      </div>
+            : `Invoice ${bill.bill_number || id.slice(0, 8)}`
+        }
+        subtitle={`${(bill.suppliers as { name: string } | null)?.name ?? 'Unknown supplier'} · ${bill.bill_date}`}
+        actions={
+          <div className="flex items-center gap-3">
+            <StatusBadge status={bill.status} />
+            <Button asChild variant="outline" size="sm">
+              <Link href="/bills">Back to Invoices</Link>
+            </Button>
+          </div>
+        }
+      />
       <BillForm
         accounts={accounts ?? []}
         funds={funds ?? []}
@@ -90,6 +94,7 @@ export default async function BillDetailPage({
           status: bill.status,
           total_pence: Number(bill.total_pence),
           journal_id: bill.journal_id,
+          attachment_url: bill.attachment_url ?? null,
         }}
         lines={
           (lines ?? []).map((l) => ({
@@ -102,6 +107,6 @@ export default async function BillDetailPage({
         }
         canEdit={canEdit}
       />
-    </div>
+    </PageShell>
   );
 }

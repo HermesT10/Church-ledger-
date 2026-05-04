@@ -4,6 +4,7 @@ const email = process.env.E2E_EMAIL!;
 const password = process.env.E2E_PASSWORD!;
 
 test("Login + visit all sidebar pages + capture console/network errors", async ({ page }) => {
+  test.skip(!email || !password, 'E2E_EMAIL and E2E_PASSWORD must be set for smoke tests.');
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
 
@@ -14,6 +15,9 @@ test("Login + visit all sidebar pages + capture console/network errors", async (
   page.on("requestfailed", (req) => {
     failedRequests.push(`[requestfailed] ${req.method()} ${req.url()} :: ${req.failure()?.errorText}`);
   });
+
+  const health = await page.request.get("/api/health");
+  expect(health.ok()).toBeTruthy();
 
   // 1) Handle ngrok interstitial (free tier shows a "Visit Site" button)
   await page.goto("/login", { waitUntil: "domcontentloaded" });

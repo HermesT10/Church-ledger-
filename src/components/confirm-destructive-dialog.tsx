@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,16 +51,19 @@ export function ConfirmDestructiveDialog({
 }: ConfirmDestructiveDialogProps) {
   const [input, setInput] = useState('');
 
-  // Reset input when dialog opens/closes
-  useEffect(() => {
-    if (!open) setInput('');
-  }, [open]);
-
   const requiresPhrase = !!confirmPhrase;
   const phraseMatch = !requiresPhrase || input === confirmPhrase;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setInput('');
+        }
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

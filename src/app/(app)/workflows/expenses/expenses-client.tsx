@@ -84,7 +84,6 @@ interface ExpensesClientProps {
 }
 
 export function ExpensesClient({
-  orgId,
   role,
   currentStatus,
   initialData,
@@ -158,7 +157,7 @@ export function ExpensesClient({
         receiptUrl = url;
       }
 
-      const { data, error } = await createExpenseRequest({
+      const { error } = await createExpenseRequest({
         spendDate,
         amountPence,
         fundId: fundId || undefined,
@@ -234,9 +233,14 @@ export function ExpensesClient({
             Submit and manage expense claims.
           </p>
         </div>
-        {canSubmit && (
-          <Button onClick={() => setSubmitOpen(true)}>Submit Expense</Button>
-        )}
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/workflows/portal-expenses">Portal submissions</Link>
+          </Button>
+          {canSubmit && (
+            <Button onClick={() => setSubmitOpen(true)}>Submit Expense</Button>
+          )}
+        </div>
       </div>
 
       {/* Status filter tabs */}
@@ -265,7 +269,7 @@ export function ExpensesClient({
       {/* Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Expenses</CardTitle>
+          <CardTitle>Expenses ({totalCount})</CardTitle>
         </CardHeader>
         <CardContent>
           {initialData.length === 0 ? (

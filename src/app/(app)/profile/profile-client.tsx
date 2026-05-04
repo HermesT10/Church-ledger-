@@ -10,12 +10,14 @@ import {
   Activity,
   Lock,
   LogOut,
+  Trash2,
 } from 'lucide-react';
 import {
   updateProfile,
   updatePreferences,
 } from './actions';
 import { changePassword, forceLogoutAll } from '../settings/actions';
+import { deleteMyAccountAction } from '@/lib/account-deletion/actions';
 import type { ProfileData } from './types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +83,7 @@ export function ProfileClient({ profile }: Props) {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   if (!profile) {
     return (
@@ -140,6 +143,24 @@ export function ProfileClient({ profile }: Props) {
       const { error } = await forceLogoutAll();
       if (error) toast.error(error);
       else toast.success('All other sessions terminated.');
+    });
+  };
+
+  const handleDeleteAccount = () => {
+    if (!confirm('This permanently deletes your login and anonymises your account profile. Historical accounting records will remain. Continue?')) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await deleteMyAccountAction({ confirmation: deleteConfirmation });
+      if (!result.success) {
+        const suffix = result.blockedOrganisations?.length
+          ? ` ${result.blockedOrganisations.join(', ')}`
+          : '';
+        toast.error(`${result.error ?? 'Could not delete account.'}${suffix}`);
+        return;
+      }
+      toast.success('Your account has been deleted.');
+      window.location.href = '/login?message=' + encodeURIComponent('Your account has been deleted.');
     });
   };
 
@@ -497,6 +518,47 @@ export function ProfileClient({ profile }: Props) {
               <Badge variant="secondary" className="text-[10px] mt-3">
                 Coming soon
               </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ==== 5. Danger Zone ==== */}
+        <Card className="order-5 md:col-span-12 rounded-2xl border-destructive/30 shadow-sm">
+          <CardHeader className="p-6 pb-0">
+            <div className="flex items-center gap-2">
+              <Trash2 size={18} className="text-destructive" />
+              <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+            </div>
+            <CardDescription>
+              Permanently delete your login and personal account data. Historical accounting records will be preserved for audit purposes and anonymised where required.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 pt-4">
+            <div className="grid gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-4 md:grid-cols-[1fr_280px]">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Delete my account</p>
+                <p className="text-sm text-muted-foreground">
+                  This removes your Supabase login, revokes workspace access, anonymises your profile, and keeps financial history intact. You cannot delete your account while you are the only active admin of a workspace.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delete-account-confirmation">Type DELETE MY ACCOUNT</Label>
+                <Input
+                  id="delete-account-confirmation"
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  placeholder="DELETE MY ACCOUNT"
+                />
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  disabled={isPending || deleteConfirmation !== 'DELETE MY ACCOUNT'}
+                  onClick={handleDeleteAccount}
+                >
+                  <Trash2 size={14} className="mr-2" />
+                  Delete my account
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
